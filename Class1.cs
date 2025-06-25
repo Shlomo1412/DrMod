@@ -424,5 +424,58 @@ namespace DrMod
             stack.Remove(modId);
             return false;
         }
+
+        public List<ModMetadata> ReadAllModMetadataInFolder(string folderPath)
+        {
+            var modFiles = Directory.GetFiles(folderPath, "*.*", SearchOption.TopDirectoryOnly);
+            var modMetadatas = new List<ModMetadata>();
+            foreach (var file in modFiles)
+            {
+                if (file.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) ||
+                    file.EndsWith("mods.toml", StringComparison.OrdinalIgnoreCase) ||
+                    file.EndsWith("neoforge.mods.toml", StringComparison.OrdinalIgnoreCase) ||
+                    file.EndsWith("fabric.mod.json", StringComparison.OrdinalIgnoreCase) ||
+                    file.EndsWith("quilt.mod.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    var metadata = ReadModMetadata(file);
+                    if (metadata != null)
+                        modMetadatas.Add(metadata);
+                }
+            }
+            return modMetadatas;
+        }
+
+        public object ResolveCrashReport(string modsFolderPath, string crashReport)
+        {
+            var modMetadatas = ReadAllModMetadataInFolder(modsFolderPath);
+            var possibleMods = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Heuristics: check for modId, mod name, or jar file name in the crash report
+            foreach (var metadata in modMetadatas)
+            {
+                if (!string.IsNullOrEmpty(metadata.modId) && crashReport.Contains(metadata.modId, StringComparison.OrdinalIgnoreCase))
+                    possibleMods.Add(metadata.modId);
+                else if (!string.IsNullOrEmpty(metadata.name) && crashReport.Contains(metadata.name, StringComparison.OrdinalIgnoreCase))
+                    possibleMods.Add(metadata.modId ?? metadata.name!);
+            }
+
+            // Also check for mod jar file names
+            var modFiles = Directory.GetFiles(modsFolderPath, "*.jar", SearchOption.TopDirectoryOnly);
+            foreach (var file in modFiles)
+            {
+                var fileName = Path.GetFileName(file);
+                if (crashReport.Contains(fileName, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Try to map file name to modId
+                    var metadata = modMetadatas.FirstOrDefault(m => !string.IsNullOrEmpty(m.modId) && (fileName.Contains(m.modId, StringComparison.OrdinalIgnoreCase) || (m.name != null && fileName.Contains(m.name, StringComparison.OrdinalIgnoreCase))));
+                    if (metadata != null && !string.IsNullOrEmpty(metadata.modId))
+                        possibleMods.Add(metadata.modId);
+                }
+            }
+
+            if (possibleMods.Count == 0)
+                return false;
+            return possibleMods.ToList();
+        }
     }
 }
