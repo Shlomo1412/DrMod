@@ -272,5 +272,52 @@ namespace DrMod
 
             return conflicts.ToList();
         }
+
+        public List<string> ValidateMod(string modPath)
+        {
+            var errors = new List<string>();
+            ModMetadata? metadata = null;
+            try
+            {
+                metadata = ReadModMetadata(modPath);
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"Failed to parse mod metadata: {ex.Message}");
+                return errors;
+            }
+
+            if (metadata == null)
+            {
+                errors.Add("Could not read mod metadata or unsupported mod format.");
+                return errors;
+            }
+
+            if (string.IsNullOrWhiteSpace(metadata.modId))
+                errors.Add("Missing modId.");
+            if (string.IsNullOrWhiteSpace(metadata.name))
+                errors.Add("Missing mod name.");
+            if (string.IsNullOrWhiteSpace(metadata.loader))
+                errors.Add("Missing loader type.");
+            if (string.IsNullOrWhiteSpace(metadata.minecraftVersion))
+                errors.Add("Missing Minecraft version.");
+            if (string.IsNullOrWhiteSpace(metadata.loaderVersion))
+                errors.Add("Missing loader version.");
+
+            // Check for duplicate dependencies
+            var dependencies = GetRequiredDependencies(modPath);
+            var depSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var dep in dependencies)
+            {
+                if (!depSet.Add(dep))
+                    errors.Add($"Duplicate dependency: {dep}");
+            }
+
+            // Check for self-dependency
+            if (metadata.modId != null && dependencies.Contains(metadata.modId, StringComparer.OrdinalIgnoreCase))
+                errors.Add("Mod depends on itself.");
+
+            return errors;
+        }
     }
 }
