@@ -7,7 +7,7 @@ namespace DrMod
 {
     public class Class1
     {
-        // Reads mod metadata from a given file path (.jar, mods.toml, or fabric.mod.json)
+        // Reads mod metadata from a given file path (.jar, mods.toml, neoforge.mods.toml, fabric.mod.json, or quilt.mod.json)
         public ModMetadata? ReadModMetadata(string filePath)
         {
             if (filePath.EndsWith(".jar", StringComparison.OrdinalIgnoreCase))
@@ -16,11 +16,19 @@ namespace DrMod
             }
             else if (filePath.EndsWith("mods.toml", StringComparison.OrdinalIgnoreCase))
             {
-                return ReadForgeModToml(filePath);
+                return ReadForgeModToml(filePath, "Forge");
+            }
+            else if (filePath.EndsWith("neoforge.mods.toml", StringComparison.OrdinalIgnoreCase))
+            {
+                return ReadForgeModToml(filePath, "NeoForge");
             }
             else if (filePath.EndsWith("fabric.mod.json", StringComparison.OrdinalIgnoreCase))
             {
-                return ReadFabricModJson(filePath);
+                return ReadFabricModJson(filePath, "Fabric");
+            }
+            else if (filePath.EndsWith("quilt.mod.json", StringComparison.OrdinalIgnoreCase))
+            {
+                return ReadFabricModJson(filePath, "Quilt");
             }
             return null;
         }
@@ -28,7 +36,17 @@ namespace DrMod
         private ModMetadata? ReadModMetadataFromJar(string jarPath)
         {
             using var archive = ZipFile.OpenRead(jarPath);
-            // Try Forge first
+            // Try NeoForge first
+            var neoforgeEntry = archive.GetEntry("META-INF/neoforge.mods.toml");
+            if (neoforgeEntry != null)
+            {
+                using var reader = new StreamReader(neoforgeEntry.Open());
+                var lines = new List<string>();
+                while (!reader.EndOfStream)
+                    lines.Add(reader.ReadLine()!);
+                return ParseForgeModTomlLines(lines, "NeoForge");
+            }
+            // Try Forge
             var tomlEntry = archive.GetEntry("META-INF/mods.toml");
             if (tomlEntry != null)
             {
@@ -36,7 +54,15 @@ namespace DrMod
                 var lines = new List<string>();
                 while (!reader.EndOfStream)
                     lines.Add(reader.ReadLine()!);
-                return ParseForgeModTomlLines(lines);
+                return ParseForgeModTomlLines(lines, "Forge");
+            }
+            // Try Quilt
+            var quiltEntry = archive.GetEntry("quilt.mod.json");
+            if (quiltEntry != null)
+            {
+                using var reader = new StreamReader(quiltEntry.Open());
+                var json = reader.ReadToEnd();
+                return ParseFabricModJsonString(json, "Quilt");
             }
             // Try Fabric
             var fabricEntry = archive.GetEntry("fabric.mod.json");
@@ -44,21 +70,21 @@ namespace DrMod
             {
                 using var reader = new StreamReader(fabricEntry.Open());
                 var json = reader.ReadToEnd();
-                return ParseFabricModJsonString(json);
+                return ParseFabricModJsonString(json, "Fabric");
             }
             return null;
         }
 
-        private ModMetadata? ReadForgeModToml(string filePath)
+        private ModMetadata? ReadForgeModToml(string filePath, string loader)
         {
             var lines = File.ReadAllLines(filePath);
-            return ParseForgeModTomlLines(lines);
+            return ParseForgeModTomlLines(lines, loader);
         }
 
-        private ModMetadata? ParseForgeModTomlLines(IEnumerable<string> lines)
+        private ModMetadata? ParseForgeModTomlLines(IEnumerable<string> lines, string loader)
         {
             var metadata = new DrMod.ModMetadata();
-            metadata.loader = "Forge";
+            metadata.loader = loader;
             foreach (var line in lines)
             {
                 if (line.StartsWith("modId"))
@@ -81,18 +107,18 @@ namespace DrMod
             return match.Success ? match.Groups[1].Value : null;
         }
 
-        private ModMetadata? ReadFabricModJson(string filePath)
+        private ModMetadata? ReadFabricModJson(string filePath, string loader)
         {
             var json = File.ReadAllText(filePath);
-            return ParseFabricModJsonString(json);
+            return ParseFabricModJsonString(json, loader);
         }
 
-        private ModMetadata? ParseFabricModJsonString(string json)
+        private ModMetadata? ParseFabricModJsonString(string json, string loader)
         {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
             var metadata = new DrMod.ModMetadata();
-            metadata.loader = "Fabric";
+            metadata.loader = loader;
             if (root.TryGetProperty("id", out var idProp))
                 metadata.modId = idProp.GetString();
             if (root.TryGetProperty("name", out var nameProp))
