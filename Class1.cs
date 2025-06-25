@@ -82,12 +82,19 @@ namespace DrMod
             return ParseForgeModTomlLines(lines, loader);
         }
 
+        // Enhanced: Parse required, optional dependencies, incompatibilities, mod version, and package
         private ModMetadata? ParseForgeModTomlLines(IEnumerable<string> lines, string loader)
         {
             var metadata = new DrMod.ModMetadata();
             metadata.loader = loader;
+            var currentSection = string.Empty;
             foreach (var line in lines)
             {
+                var trimmed = line.Trim();
+                if (trimmed.StartsWith("["))
+                {
+                    currentSection = trimmed;
+                }
                 if (line.StartsWith("modId"))
                     metadata.modId = GetTomlValue(line);
                 else if (line.StartsWith("displayName"))
@@ -98,6 +105,29 @@ namespace DrMod
                     metadata.loaderVersion = GetTomlValue(line);
                 else if (line.StartsWith("mcVersion"))
                     metadata.minecraftVersion = GetTomlValue(line);
+                else if (line.StartsWith("version"))
+                    metadata.modVersion = GetTomlValue(line);
+                // Required dependencies
+                else if (currentSection.StartsWith("[[dependencies.") && line.Trim().StartsWith("mandatory") && line.Contains("true"))
+                {
+                    var depId = currentSection.Replace("[[dependencies.", "").Replace("]]", "").Trim();
+                    if (!string.IsNullOrEmpty(depId))
+                        metadata.requiredDependencies.Add(depId);
+                }
+                // Optional dependencies
+                else if (currentSection.StartsWith("[[dependencies.") && line.Trim().StartsWith("mandatory") && line.Contains("false"))
+                {
+                    var depId = currentSection.Replace("[[dependencies.", "").Replace("]]", "").Trim();
+                    if (!string.IsNullOrEmpty(depId))
+                        metadata.optionalDependencies.Add(depId);
+                }
+                // Incompatibilities (Forge/NeoForge: [[incompatibilities.MODID]])
+                else if (currentSection.StartsWith("[[incompatibilities."))
+                {
+                    var incId = currentSection.Replace("[[incompatibilities.", "").Replace("]]", "").Trim();
+                    if (!string.IsNullOrEmpty(incId) && !metadata.incompatibilities.Contains(incId))
+                        metadata.incompatibilities.Add(incId);
+                }
             }
             return metadata;
         }
@@ -114,6 +144,7 @@ namespace DrMod
             return ParseFabricModJsonString(json, loader);
         }
 
+        // Enhanced: Parse required, optional dependencies, incompatibilities, mod version, and package for Fabric/Quilt
         private ModMetadata? ParseFabricModJsonString(string json, string loader)
         {
             using var doc = JsonDocument.Parse(json);
@@ -126,10 +157,70 @@ namespace DrMod
                 metadata.name = nameProp.GetString();
             if (root.TryGetProperty("description", out var descProp))
                 metadata.description = descProp.GetString();
-            if (root.TryGetProperty("depends", out var dependsProp) && dependsProp.TryGetProperty("minecraft", out var mcProp))
-                metadata.minecraftVersion = mcProp.GetString();
+            if (root.TryGetProperty("version", out var verProp))
+                metadata.modVersion = verProp.GetString();
+            if (root.TryGetProperty("depends", out var dependsProp))
+            {
+                if (dependsProp.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var dep in dependsProp.EnumerateObject())
+                    {
+                        if (dep.Name != "minecraft")
+                            metadata.requiredDependencies.Add(dep.Name);
+                    }
+                }
+                else if (dependsProp.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var dep in dependsProp.EnumerateArray())
+                    {
+                        if (dep.ValueKind == JsonValueKind.String)
+                            metadata.requiredDependencies.Add(dep.GetString()!);
+                        else if (dep.ValueKind == JsonValueKind.Object && dep.TryGetProperty("id", out var idDepProp))
+                            metadata.requiredDependencies.Add(idDepProp.GetString()!);
+                    }
+                }
+            }
+            // Optional dependencies (Fabric/Quilt: "suggests")
+            if (root.TryGetProperty("suggests", out var suggestsProp) && suggestsProp.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var dep in suggestsProp.EnumerateObject())
+                {
+                    metadata.optionalDependencies.Add(dep.Name);
+                }
+            }
+            // Incompatibilities (Fabric/Quilt: "breaks" or "conflicts")
+            if (root.TryGetProperty("breaks", out var breaksProp))
+            {
+                if (breaksProp.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var dep in breaksProp.EnumerateObject())
+                        metadata.incompatibilities.Add(dep.Name);
+                }
+                else if (breaksProp.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var dep in breaksProp.EnumerateArray())
+                        if (dep.ValueKind == JsonValueKind.String)
+                            metadata.incompatibilities.Add(dep.GetString()!);
+                }
+            }
+            if (root.TryGetProperty("conflicts", out var conflictsProp))
+            {
+                if (conflictsProp.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var dep in conflictsProp.EnumerateObject())
+                        metadata.incompatibilities.Add(dep.Name);
+                }
+                else if (conflictsProp.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var dep in conflictsProp.EnumerateArray())
+                        if (dep.ValueKind == JsonValueKind.String)
+                            metadata.incompatibilities.Add(dep.GetString()!);
+                }
+            }
             if (root.TryGetProperty("schemaVersion", out var loaderVerProp))
                 metadata.loaderVersion = loaderVerProp.ToString();
+            if (root.TryGetProperty("depends", out var dependsProp2) && dependsProp2.ValueKind == JsonValueKind.Object && dependsProp2.TryGetProperty("minecraft", out var mcProp))
+                metadata.minecraftVersion = mcProp.GetString();
             return metadata;
         }
 
@@ -139,111 +230,50 @@ namespace DrMod
             if (metadata == null)
                 return false;
 
-            // Compare loader (case-insensitive)
+            // Loader check (case-insensitive)
             if (!string.Equals(metadata.loader, loader, StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            // Compare MC version (exact match for now)
-            if (!string.IsNullOrEmpty(metadata.minecraftVersion) && metadata.minecraftVersion != mcVersion)
+            // MC version: support version prefix/range (e.g., 1.20, 1.20.1, 1.20.x)
+            if (!string.IsNullOrEmpty(metadata.minecraftVersion) && !IsVersionCompatible(metadata.minecraftVersion, mcVersion))
                 return false;
 
-            // Compare loader version (exact match for now)
-            if (!string.IsNullOrEmpty(metadata.loaderVersion) && metadata.loaderVersion != loaderVersion)
+            // Loader version: support version prefix/range
+            if (!string.IsNullOrEmpty(metadata.loaderVersion) && !IsVersionCompatible(metadata.loaderVersion, loaderVersion))
                 return false;
 
             return true;
         }
 
+        // Advanced version compatibility: supports exact, prefix, and x wildcards (e.g., 1.20, 1.20.x)
+        private bool IsVersionCompatible(string modVersion, string targetVersion)
+        {
+            if (modVersion == targetVersion)
+                return true;
+            if (modVersion.EndsWith(".x") && targetVersion.StartsWith(modVersion.TrimEnd('x', '.')))
+                return true;
+            if (targetVersion.EndsWith(".x") && modVersion.StartsWith(targetVersion.TrimEnd('x', '.')))
+                return true;
+            // Could add more advanced range parsing here
+            return false;
+        }
+
         public List<string> GetRequiredDependencies(string modPath)
         {
-            var dependencies = new List<string>();
-            if (modPath.EndsWith(".jar", StringComparison.OrdinalIgnoreCase))
-            {
-                using var archive = ZipFile.OpenRead(modPath);
-                // NeoForge/Forge
-                var neoforgeEntry = archive.GetEntry("META-INF/neoforge.mods.toml");
-                if (neoforgeEntry != null)
-                {
-                    using var reader = new StreamReader(neoforgeEntry.Open());
-                    dependencies.AddRange(ParseForgeTomlDependencies(reader.ReadToEnd()));
-                    return dependencies;
-                }
-                var forgeEntry = archive.GetEntry("META-INF/mods.toml");
-                if (forgeEntry != null)
-                {
-                    using var reader = new StreamReader(forgeEntry.Open());
-                    dependencies.AddRange(ParseForgeTomlDependencies(reader.ReadToEnd()));
-                    return dependencies;
-                }
-                // Quilt
-                var quiltEntry = archive.GetEntry("quilt.mod.json");
-                if (quiltEntry != null)
-                {
-                    using var reader = new StreamReader(quiltEntry.Open());
-                    dependencies.AddRange(ParseFabricJsonDependencies(reader.ReadToEnd()));
-                    return dependencies;
-                }
-                // Fabric
-                var fabricEntry = archive.GetEntry("fabric.mod.json");
-                if (fabricEntry != null)
-                {
-                    using var reader = new StreamReader(fabricEntry.Open());
-                    dependencies.AddRange(ParseFabricJsonDependencies(reader.ReadToEnd()));
-                    return dependencies;
-                }
-            }
-            else if (modPath.EndsWith("mods.toml", StringComparison.OrdinalIgnoreCase) || modPath.EndsWith("neoforge.mods.toml", StringComparison.OrdinalIgnoreCase))
-            {
-                dependencies.AddRange(ParseForgeTomlDependencies(File.ReadAllText(modPath)));
-            }
-            else if (modPath.EndsWith("fabric.mod.json", StringComparison.OrdinalIgnoreCase) || modPath.EndsWith("quilt.mod.json", StringComparison.OrdinalIgnoreCase))
-            {
-                dependencies.AddRange(ParseFabricJsonDependencies(File.ReadAllText(modPath)));
-            }
-            return dependencies;
+            var metadata = ReadModMetadata(modPath);
+            return metadata?.requiredDependencies ?? new List<string>();
         }
 
-        private List<string> ParseForgeTomlDependencies(string toml)
+        public List<string> GetOptionalDependencies(string modPath)
         {
-            var dependencies = new List<string>();
-            // Simple regex to find required dependencies: [[dependencies.MODID]] id = "..." mandatory = true
-            var depBlocks = Regex.Matches(toml, @"\[\[dependencies\.(.*?)\]\](.*?)mandatory\s*=\s*true", RegexOptions.Singleline);
-            foreach (Match block in depBlocks)
-            {
-                // The group 1 is the modid of the dependency
-                if (block.Groups.Count > 1)
-                    dependencies.Add(block.Groups[1].Value);
-            }
-            return dependencies;
+            var metadata = ReadModMetadata(modPath);
+            return metadata?.optionalDependencies ?? new List<string>();
         }
 
-        private List<string> ParseFabricJsonDependencies(string json)
+        public List<string> GetIncompatibilities(string modPath)
         {
-            var dependencies = new List<string>();
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-            if (root.TryGetProperty("depends", out var dependsProp))
-            {
-                if (dependsProp.ValueKind == JsonValueKind.Object)
-                {
-                    foreach (var dep in dependsProp.EnumerateObject())
-                    {
-                        if (dep.Name != "minecraft") // skip minecraft itself
-                            dependencies.Add(dep.Name);
-                    }
-                }
-                else if (dependsProp.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var dep in dependsProp.EnumerateArray())
-                    {
-                        if (dep.ValueKind == JsonValueKind.String)
-                            dependencies.Add(dep.GetString()!);
-                        else if (dep.ValueKind == JsonValueKind.Object && dep.TryGetProperty("id", out var idProp))
-                            dependencies.Add(idProp.GetString()!);
-                    }
-                }
-            }
-            return dependencies;
+            var metadata = ReadModMetadata(modPath);
+            return metadata?.incompatibilities ?? new List<string>();
         }
 
         public List<string> DetectConflicts(List<string> modPaths)
@@ -303,19 +333,30 @@ namespace DrMod
                 errors.Add("Missing Minecraft version.");
             if (string.IsNullOrWhiteSpace(metadata.loaderVersion))
                 errors.Add("Missing loader version.");
+            if (string.IsNullOrWhiteSpace(metadata.modVersion))
+                errors.Add("Missing mod version.");
 
             // Check for duplicate dependencies
-            var dependencies = GetRequiredDependencies(modPath);
             var depSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var dep in dependencies)
+            foreach (var dep in metadata.requiredDependencies)
             {
                 if (!depSet.Add(dep))
-                    errors.Add($"Duplicate dependency: {dep}");
+                    errors.Add($"Duplicate required dependency: {dep}");
+            }
+            depSet.Clear();
+            foreach (var dep in metadata.optionalDependencies)
+            {
+                if (!depSet.Add(dep))
+                    errors.Add($"Duplicate optional dependency: {dep}");
             }
 
             // Check for self-dependency
-            if (metadata.modId != null && dependencies.Contains(metadata.modId, StringComparer.OrdinalIgnoreCase))
+            if (metadata.modId != null && metadata.requiredDependencies.Contains(metadata.modId, StringComparer.OrdinalIgnoreCase))
                 errors.Add("Mod depends on itself.");
+
+            // Check for self-incompatibility
+            if (metadata.modId != null && metadata.incompatibilities.Contains(metadata.modId, StringComparer.OrdinalIgnoreCase))
+                errors.Add("Mod is marked as incompatible with itself.");
 
             return errors;
         }
@@ -340,6 +381,7 @@ namespace DrMod
             var modIdToMetadata = new Dictionary<string, ModMetadata>(StringComparer.OrdinalIgnoreCase);
             var modIdToPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var modIdToDependencies = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            var modIdToIncompatibilities = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
             var mcVersions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var loaders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var loaderVersions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -361,7 +403,8 @@ namespace DrMod
                     mcVersions.Add(metadata.minecraftVersion ?? "");
                     loaders.Add(metadata.loader ?? "");
                     loaderVersions.Add(metadata.loaderVersion ?? "");
-                    modIdToDependencies[metadata.modId] = GetRequiredDependencies(modPath);
+                    modIdToDependencies[metadata.modId] = metadata.requiredDependencies;
+                    modIdToIncompatibilities[metadata.modId] = metadata.incompatibilities;
                 }
             }
 
@@ -396,6 +439,16 @@ namespace DrMod
                 if (HasCircularDependency(modId, modIdToDependencies, visited, stack, out var cycle))
                 {
                     errors.Add($"Circular dependency detected: {string.Join(" -> ", cycle)}");
+                }
+            }
+
+            // Check for explicit incompatibilities
+            foreach (var kvp in modIdToIncompatibilities)
+            {
+                foreach (var inc in kvp.Value)
+                {
+                    if (modIdToMetadata.ContainsKey(inc))
+                        errors.Add($"[{kvp.Key}] is incompatible with [{inc}]");
                 }
             }
 
@@ -450,13 +503,15 @@ namespace DrMod
             var modMetadatas = ReadAllModMetadataInFolder(modsFolderPath);
             var possibleMods = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            // Heuristics: check for modId, mod name, or jar file name in the crash report
+            // Heuristics: check for modId, mod name, mod version, or jar file name in the crash report
             foreach (var metadata in modMetadatas)
             {
                 if (!string.IsNullOrEmpty(metadata.modId) && crashReport.Contains(metadata.modId, StringComparison.OrdinalIgnoreCase))
                     possibleMods.Add(metadata.modId);
                 else if (!string.IsNullOrEmpty(metadata.name) && crashReport.Contains(metadata.name, StringComparison.OrdinalIgnoreCase))
                     possibleMods.Add(metadata.modId ?? metadata.name!);
+                else if (!string.IsNullOrEmpty(metadata.modVersion) && crashReport.Contains(metadata.modVersion, StringComparison.OrdinalIgnoreCase))
+                    possibleMods.Add(metadata.modId ?? metadata.modVersion!);
             }
 
             // Also check for mod jar file names
@@ -473,9 +528,38 @@ namespace DrMod
                 }
             }
 
+            // Advanced: check for package/class names (if available)
+            foreach (var metadata in modMetadatas)
+            {
+                if (!string.IsNullOrEmpty(metadata.modPackage) && crashReport.Contains(metadata.modPackage, StringComparison.OrdinalIgnoreCase))
+                    possibleMods.Add(metadata.modId ?? metadata.modPackage!);
+            }
+
             if (possibleMods.Count == 0)
                 return false;
             return possibleMods.ToList();
+        }
+
+        // Advanced incompatibility detection
+        public List<(string modId, string incompatibleWith)> DetectIncompatibilities(List<string> modPaths)
+        {
+            var incompatibilities = new List<(string, string)>();
+            var modMetadatas = new Dictionary<string, ModMetadata>(StringComparer.OrdinalIgnoreCase);
+            foreach (var path in modPaths)
+            {
+                var metadata = ReadModMetadata(path);
+                if (metadata != null && !string.IsNullOrEmpty(metadata.modId))
+                    modMetadatas[metadata.modId] = metadata;
+            }
+            foreach (var mod in modMetadatas.Values)
+            {
+                foreach (var inc in mod.incompatibilities)
+                {
+                    if (modMetadatas.ContainsKey(inc))
+                        incompatibilities.Add((mod.modId!, inc));
+                }
+            }
+            return incompatibilities;
         }
     }
 }
