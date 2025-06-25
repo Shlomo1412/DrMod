@@ -131,5 +131,26 @@ namespace DrMod
                 metadata.loaderVersion = loaderVerProp.ToString();
             return metadata;
         }
+
+        public bool IsCompatible(string modPath, string mcVersion, string loader, string loaderVersion)
+        {
+            var metadata = ReadModMetadata(modPath);
+            if (metadata == null)
+                return false;
+
+            // Compare loader (case-insensitive)
+            if (!string.Equals(metadata.loader, loader, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            // Compare MC version (exact match for now)
+            if (!string.IsNullOrEmpty(metadata.minecraftVersion) && metadata.minecraftVersion != mcVersion)
+                return false;
+
+            // Compare loader version (exact match for now)
+            if (!string.IsNullOrEmpty(metadata.loaderVersion) && metadata.loaderVersion != loaderVersion)
+                return false;
+
+            return true;
+        }
     }
 }
