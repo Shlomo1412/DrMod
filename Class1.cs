@@ -319,5 +319,110 @@ namespace DrMod
 
             return errors;
         }
+
+        public List<string> ValidateModsFolder(string folderPath)
+        {
+            var errors = new List<string>();
+            var modFiles = Directory.GetFiles(folderPath, "*.*", SearchOption.TopDirectoryOnly);
+            var modPaths = new List<string>();
+            foreach (var file in modFiles)
+            {
+                if (file.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) ||
+                    file.EndsWith("mods.toml", StringComparison.OrdinalIgnoreCase) ||
+                    file.EndsWith("neoforge.mods.toml", StringComparison.OrdinalIgnoreCase) ||
+                    file.EndsWith("fabric.mod.json", StringComparison.OrdinalIgnoreCase) ||
+                    file.EndsWith("quilt.mod.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    modPaths.Add(file);
+                }
+            }
+
+            var modIdToMetadata = new Dictionary<string, ModMetadata>(StringComparer.OrdinalIgnoreCase);
+            var modIdToPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var modIdToDependencies = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            var mcVersions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var loaders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var loaderVersions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Validate each mod and collect metadata
+            foreach (var modPath in modPaths)
+            {
+                var modErrors = ValidateMod(modPath);
+                if (modErrors.Count > 0)
+                {
+                    foreach (var err in modErrors)
+                        errors.Add($"[{Path.GetFileName(modPath)}] {err}");
+                }
+                var metadata = ReadModMetadata(modPath);
+                if (metadata != null && !string.IsNullOrEmpty(metadata.modId))
+                {
+                    modIdToMetadata[metadata.modId] = metadata;
+                    modIdToPath[metadata.modId] = modPath;
+                    mcVersions.Add(metadata.minecraftVersion ?? "");
+                    loaders.Add(metadata.loader ?? "");
+                    loaderVersions.Add(metadata.loaderVersion ?? "");
+                    modIdToDependencies[metadata.modId] = GetRequiredDependencies(modPath);
+                }
+            }
+
+            // Check for duplicate mod IDs
+            var duplicateIds = DetectConflicts(modPaths);
+            foreach (var dup in duplicateIds)
+                errors.Add($"Duplicate modId detected: {dup}");
+
+            // Check for mods using different MC versions/loaders/loader versions
+            if (mcVersions.Count > 1)
+                errors.Add($"Multiple Minecraft versions detected in mods folder: {string.Join(", ", mcVersions.Where(v => !string.IsNullOrEmpty(v)))}");
+            if (loaders.Count > 1)
+                errors.Add($"Multiple loaders detected in mods folder: {string.Join(", ", loaders.Where(l => !string.IsNullOrEmpty(l)))}");
+            if (loaderVersions.Count > 1)
+                errors.Add($"Multiple loader versions detected in mods folder: {string.Join(", ", loaderVersions.Where(lv => !string.IsNullOrEmpty(lv)))}");
+
+            // Check for missing dependencies
+            foreach (var kvp in modIdToDependencies)
+            {
+                foreach (var dep in kvp.Value)
+                {
+                    if (!modIdToMetadata.ContainsKey(dep))
+                        errors.Add($"[{kvp.Key}] Missing required dependency: {dep}");
+                }
+            }
+
+            // Check for circular dependencies (simple DFS)
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var stack = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var modId in modIdToDependencies.Keys)
+            {
+                if (HasCircularDependency(modId, modIdToDependencies, visited, stack, out var cycle))
+                {
+                    errors.Add($"Circular dependency detected: {string.Join(" -> ", cycle)}");
+                }
+            }
+
+            return errors;
+        }
+
+        private bool HasCircularDependency(string modId, Dictionary<string, List<string>> depMap, HashSet<string> visited, HashSet<string> stack, out List<string> cycle)
+        {
+            cycle = new List<string>();
+            if (!visited.Add(modId))
+                return false;
+            stack.Add(modId);
+            if (depMap.TryGetValue(modId, out var deps))
+            {
+                foreach (var dep in deps)
+                {
+                    if (stack.Contains(dep))
+                    {
+                        cycle = stack.Concat(new[] { dep }).ToList();
+                        return true;
+                    }
+                    if (HasCircularDependency(dep, depMap, visited, stack, out cycle))
+                        return true;
+                }
+            }
+            stack.Remove(modId);
+            return false;
+        }
     }
 }
