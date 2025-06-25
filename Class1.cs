@@ -2,6 +2,7 @@
 using System.Text.RegularExpressions;
 using System.IO;
 using System.IO.Compression;
+using System.Collections.Generic;
 
 namespace DrMod
 {
@@ -151,6 +152,98 @@ namespace DrMod
                 return false;
 
             return true;
+        }
+
+        public List<string> GetRequiredDependencies(string modPath)
+        {
+            var dependencies = new List<string>();
+            if (modPath.EndsWith(".jar", StringComparison.OrdinalIgnoreCase))
+            {
+                using var archive = ZipFile.OpenRead(modPath);
+                // NeoForge/Forge
+                var neoforgeEntry = archive.GetEntry("META-INF/neoforge.mods.toml");
+                if (neoforgeEntry != null)
+                {
+                    using var reader = new StreamReader(neoforgeEntry.Open());
+                    dependencies.AddRange(ParseForgeTomlDependencies(reader.ReadToEnd()));
+                    return dependencies;
+                }
+                var forgeEntry = archive.GetEntry("META-INF/mods.toml");
+                if (forgeEntry != null)
+                {
+                    using var reader = new StreamReader(forgeEntry.Open());
+                    dependencies.AddRange(ParseForgeTomlDependencies(reader.ReadToEnd()));
+                    return dependencies;
+                }
+                // Quilt
+                var quiltEntry = archive.GetEntry("quilt.mod.json");
+                if (quiltEntry != null)
+                {
+                    using var reader = new StreamReader(quiltEntry.Open());
+                    dependencies.AddRange(ParseFabricJsonDependencies(reader.ReadToEnd()));
+                    return dependencies;
+                }
+                // Fabric
+                var fabricEntry = archive.GetEntry("fabric.mod.json");
+                if (fabricEntry != null)
+                {
+                    using var reader = new StreamReader(fabricEntry.Open());
+                    dependencies.AddRange(ParseFabricJsonDependencies(reader.ReadToEnd()));
+                    return dependencies;
+                }
+            }
+            else if (modPath.EndsWith("mods.toml", StringComparison.OrdinalIgnoreCase) || modPath.EndsWith("neoforge.mods.toml", StringComparison.OrdinalIgnoreCase))
+            {
+                dependencies.AddRange(ParseForgeTomlDependencies(File.ReadAllText(modPath)));
+            }
+            else if (modPath.EndsWith("fabric.mod.json", StringComparison.OrdinalIgnoreCase) || modPath.EndsWith("quilt.mod.json", StringComparison.OrdinalIgnoreCase))
+            {
+                dependencies.AddRange(ParseFabricJsonDependencies(File.ReadAllText(modPath)));
+            }
+            return dependencies;
+        }
+
+        private List<string> ParseForgeTomlDependencies(string toml)
+        {
+            var dependencies = new List<string>();
+            // Simple regex to find required dependencies: [[dependencies.MODID]] id = "..." mandatory = true
+            var depBlocks = Regex.Matches(toml, @"\[\[dependencies\.(.*?)\]\](.*?)mandatory\s*=\s*true", RegexOptions.Singleline);
+            foreach (Match block in depBlocks)
+            {
+                // The group 1 is the modid of the dependency
+                if (block.Groups.Count > 1)
+                    dependencies.Add(block.Groups[1].Value);
+            }
+            return dependencies;
+        }
+
+        private List<string> ParseFabricJsonDependencies(string json)
+        {
+            var dependencies = new List<string>();
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("depends", out var dependsProp))
+            {
+                if (dependsProp.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var dep in dependsProp.EnumerateObject())
+                    {
+                        if (dep.Name != "minecraft") // skip minecraft itself
+                            dependencies.Add(dep.Name);
+                    }
+                }
+                else if (dependsProp.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var dep in dependsProp.EnumerateArray())
+                    {
+                        if (dep.ValueKind == JsonValueKind.String)
+                            dependencies.Add(dep.GetString()!);
+                        else if (dep.ValueKind == JsonValueKind.Object && dep.TryGetProperty("id", out var idProp))
+                            dependencies.Add(idProp.GetString()!);
+                    }
+                }
+            }
+            return dependencies;
         }
     }
 }
