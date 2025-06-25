@@ -245,5 +245,32 @@ namespace DrMod
             }
             return dependencies;
         }
+
+        public List<string> DetectConflicts(List<string> modPaths)
+        {
+            var modIdToPaths = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            var conflicts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var path in modPaths)
+            {
+                var metadata = ReadModMetadata(path);
+                if (metadata == null || string.IsNullOrEmpty(metadata.modId))
+                    continue;
+                if (!modIdToPaths.ContainsKey(metadata.modId!))
+                    modIdToPaths[metadata.modId!] = new List<string>();
+                modIdToPaths[metadata.modId!].Add(path);
+            }
+
+            // Detect duplicate mod IDs
+            foreach (var kvp in modIdToPaths)
+            {
+                if (kvp.Value.Count > 1)
+                    conflicts.Add(kvp.Key);
+            }
+
+            // (Future: Add dependency and explicit incompatibility checks here)
+
+            return conflicts.ToList();
+        }
     }
 }
