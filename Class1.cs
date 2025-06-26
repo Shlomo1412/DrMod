@@ -561,5 +561,116 @@ namespace DrMod
             }
             return incompatibilities;
         }
+
+        // 1. GetModById: Retrieve ModMetadata for a specific mod ID from a folder
+        public ModMetadata? GetModById(string modId, string folderPath)
+        {
+            var mods = ReadAllModMetadataInFolder(folderPath);
+            return mods.FirstOrDefault(m => string.Equals(m.modId, modId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // 2. GetAllDependencies: Recursively resolve all dependencies for a mod
+        public HashSet<string> GetAllDependencies(string modPath, bool includeOptional = false)
+        {
+            var allDeps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            void Visit(string path)
+            {
+                if (!visited.Add(path)) return;
+                var meta = ReadModMetadata(path);
+                if (meta == null || string.IsNullOrEmpty(meta.modId)) return;
+                var folder = Path.GetDirectoryName(path)!;
+                foreach (var dep in meta.requiredDependencies)
+                {
+                    if (allDeps.Add(dep))
+                    {
+                        var depMeta = GetModById(dep, folder);
+                        if (depMeta != null && !string.IsNullOrEmpty(depMeta.modFileName))
+                            Visit(Path.Combine(folder, depMeta.modFileName));
+                    }
+                }
+                if (includeOptional)
+                {
+                    foreach (var dep in meta.optionalDependencies)
+                    {
+                        if (allDeps.Add(dep))
+                        {
+                            var depMeta = GetModById(dep, folder);
+                            if (depMeta != null && !string.IsNullOrEmpty(depMeta.modFileName))
+                                Visit(Path.Combine(folder, depMeta.modFileName));
+                        }
+                    }
+                }
+            }
+            Visit(modPath);
+            return allDeps;
+        }
+
+        // 3. GetDependents: Return mods that depend on a given mod
+        public List<string> GetDependents(string modId, string folderPath)
+        {
+            var mods = ReadAllModMetadataInFolder(folderPath);
+            return mods.Where(m => m.requiredDependencies.Contains(modId, StringComparer.OrdinalIgnoreCase) || m.optionalDependencies.Contains(modId, StringComparer.OrdinalIgnoreCase))
+                       .Select(m => m.modId ?? "")
+                       .Where(id => !string.IsNullOrEmpty(id))
+                       .ToList();
+        }
+
+        // 4. GetModVersion: Return the version of a mod
+        public string? GetModVersion(string modPath)
+        {
+            var meta = ReadModMetadata(modPath);
+            return meta?.modVersion;
+        }
+
+        // 5. GetModFileName: Return the file name of a mod by its mod ID
+        public string? GetModFileName(string modId, string folderPath)
+        {
+            var mods = ReadAllModMetadataInFolder(folderPath);
+            var meta = mods.FirstOrDefault(m => string.Equals(m.modId, modId, StringComparison.OrdinalIgnoreCase));
+            return meta?.modFileName;
+        }
+
+        // 6. GetModSummary: Return a summary string with all key metadata
+        public string GetModSummary(string modPath)
+        {
+            var meta = ReadModMetadata(modPath);
+            if (meta == null) return "Mod not found or invalid.";
+            return $"ID: {meta.modId}\nName: {meta.name}\nVersion: {meta.modVersion}\nLoader: {meta.loader}\nLoaderVersion: {meta.loaderVersion}\nMCVersion: {meta.minecraftVersion}\nRequired: [{string.Join(", ", meta.requiredDependencies)}]\nOptional: [{string.Join(", ", meta.optionalDependencies)}]\nIncompatibilities: [{string.Join(", ", meta.incompatibilities)}]";
+        }
+
+        // 7. GetModsByLoader: Return all mods in a folder that use a specific loader
+        public List<ModMetadata> GetModsByLoader(string loader, string folderPath)
+        {
+            var mods = ReadAllModMetadataInFolder(folderPath);
+            return mods.Where(m => string.Equals(m.loader, loader, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+
+        // 8. GetModsByMinecraftVersion: Return all mods compatible with a specific MC version
+        public List<ModMetadata> GetModsByMinecraftVersion(string mcVersion, string folderPath)
+        {
+            var mods = ReadAllModMetadataInFolder(folderPath);
+            return mods.Where(m => !string.IsNullOrEmpty(m.minecraftVersion) && IsVersionCompatible(m.minecraftVersion, mcVersion)).ToList();
+        }
+
+        // 9. GetModsWithMissingDependencies: Return mods with missing required dependencies
+        public List<string> GetModsWithMissingDependencies(string folderPath)
+        {
+            var mods = ReadAllModMetadataInFolder(folderPath);
+            var modIds = new HashSet<string>(mods.Select(m => m.modId ?? ""), StringComparer.OrdinalIgnoreCase);
+            var result = new List<string>();
+            foreach (var mod in mods)
+            {
+                foreach (var dep in mod.requiredDependencies)
+                {
+                    if (!modIds.Contains(dep))
+                    {
+                        if (!string.IsNullOrEmpty(mod.modId) && !result.Contains(mod.modId))
+                            result.Add(mod.modId);
+                    }
+                }
+            }
+            return result;
+        }
     }
 }
