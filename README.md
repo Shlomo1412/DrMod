@@ -16,14 +16,15 @@ Add the DrMod project to your solution or reference the DLL. Target .NET 8 or la
 
 ## Usage
 
-### Creating an Analyzerusing DrMod;
+### Creating an Analyzer
+using DrMod;
 
 var analyzer = new DrMod();
 ## API Reference with Examples
 
 ### Metadata & Validation Methods
 
-#### ReadModMetadata(string filePath)
+#### `ReadModMetadata(string filePath)`
 Read metadata from a mod JAR or metadata file.
 
 **Example:**// Reading from a JAR file
@@ -39,7 +40,7 @@ if (metadata != null)
 // Reading from a metadata file directly
 var fabricMeta = analyzer.ReadModMetadata(@"C:\fabric.mod.json");
 var forgeMeta = analyzer.ReadModMetadata(@"C:\META-INF\mods.toml");
-#### ReadAllModMetadataInFolder(string folderPath)
+#### `ReadAllModMetadataInFolder(string folderPath)`
 Read metadata for all mods in a folder.
 
 **Example:**var allMods = analyzer.ReadAllModMetadataInFolder(@"C:\Minecraft\mods");
@@ -53,7 +54,7 @@ foreach (var mod in allMods)
 // Filter by specific criteria
 var forgeMods = allMods.Where(m => m.loader == "Forge").ToList();
 var fabricMods = allMods.Where(m => m.loader == "Fabric").ToList();
-#### ValidateMod(string modPath)
+#### `ValidateMod(string modPath)`
 Validate a single mod and return a list of errors.
 
 **Example:**var errors = analyzer.ValidateMod(@"C:\mods\examplemod.jar");
@@ -70,13 +71,11 @@ else
         Console.WriteLine($"  - {error}");
     }
 }
-
-// Example output:
-// ? Mod validation errors:
-//   - Missing modId.
-//   - Missing Minecraft version.
-//   - Duplicate required dependency: forge
-#### ValidateModsFolder(string folderPath)
+// Example output:? Mod validation errors:
+  - Missing modId.
+  - Missing Minecraft version.
+  - Duplicate required dependency: forge
+#### `ValidateModsFolder(string folderPath)`
 Validate all mods in a folder and detect folder-wide issues.
 
 **Example:**var folderErrors = analyzer.ValidateModsFolder(@"C:\Minecraft\mods");
@@ -93,16 +92,14 @@ else
         Console.WriteLine($"  {error}");
     }
 }
-
-// Example output:
-// ? Found 3 issues:
-//   [badmod.jar] Missing modId.
-//   Duplicate modId detected: jei
-//   Multiple Minecraft versions detected in mods folder: 1.20.1, 1.19.4
-//   [modA] is incompatible with [modB]
+// Example output:? Found 3 issues:
+  [badmod.jar] Missing modId.
+  Duplicate modId detected: jei
+  Multiple Minecraft versions detected in mods folder: 1.20.1, 1.19.4
+  [modA] is incompatible with [modB]
 ### Compatibility & Conflict Detection Methods
 
-#### IsCompatible(string modPath, string mcVersion, string loader, string loaderVersion)
+#### `IsCompatible(string modPath, string mcVersion, string loader, string loaderVersion)`
 Check if a mod is compatible with specific game/loader versions.
 
 **Example:**// Check compatibility with specific versions
@@ -127,7 +124,7 @@ foreach (var mod in mods)
     var modName = Path.GetFileNameWithoutExtension(mod);
     Console.WriteLine($"{modName}: {(compatible ? "?" : "?")}");
 }
-#### DetectConflicts(List<string> modPaths)
+#### `DetectConflicts(List<string> modPaths)`
 Detect duplicate mod IDs in a list of mod files.
 
 **Example:**var modFiles = Directory.GetFiles(@"C:\mods", "*.jar").ToList();
@@ -139,21 +136,19 @@ if (conflicts.Count > 0)
     foreach (var conflict in conflicts)
     {
         Console.WriteLine($"  Duplicate mod ID: {conflict}");
-        
         // Find which files have the same ID
         var conflictingFiles = modFiles.Where(f => 
         {
             var meta = analyzer.ReadModMetadata(f);
             return meta?.modId == conflict;
         });
-        
         foreach (var file in conflictingFiles)
         {
             Console.WriteLine($"    - {Path.GetFileName(file)}");
         }
     }
 }
-#### DetectIncompatibilities(List<string> modPaths)
+#### `DetectIncompatibilities(List<string> modPaths)`
 Detect explicit incompatibilities between mods.
 
 **Example:**var modFiles = Directory.GetFiles(@"C:\mods", "*.jar").ToList();
@@ -166,12 +161,11 @@ if (incompatibilities.Count > 0)
     {
         Console.WriteLine($"  {modId} is incompatible with {incompatibleWith}");
     }
-    
     Console.WriteLine("\n?? Consider removing one mod from each incompatible pair.");
 }
 ### Dependency Analysis Methods
 
-#### GetRequiredDependencies(string modPath)
+#### `GetRequiredDependencies(string modPath)`
 Get required dependencies for a mod.
 
 **Example:**var requiredDeps = analyzer.GetRequiredDependencies(@"C:\mods\jei.jar");
@@ -180,13 +174,10 @@ Console.WriteLine("Required dependencies:");
 foreach (var dep in requiredDeps)
 {
     Console.WriteLine($"  - {dep}");
-}
-
-// Example output:
-// Required dependencies:
-//   - forge
-//   - minecraft
-#### GetOptionalDependencies(string modPath)
+}// Example output:Required dependencies:
+  - forge
+  - minecraft
+#### `GetOptionalDependencies(string modPath)`
 Get optional dependencies for a mod.
 
 **Example:**var optionalDeps = analyzer.GetOptionalDependencies(@"C:\mods\jei.jar");
@@ -196,7 +187,7 @@ foreach (var dep in optionalDeps)
 {
     Console.WriteLine($"  - {dep}");
 }
-#### GetIncompatibilities(string modPath)
+#### `GetIncompatibilities(string modPath)`
 Get explicit incompatibilities for a mod.
 
 **Example:**var incompatibilities = analyzer.GetIncompatibilities(@"C:\mods\optifine.jar");
@@ -209,7 +200,7 @@ if (incompatibilities.Count > 0)
         Console.WriteLine($"  - {inc}");
     }
 }
-#### GetAllDependencies(string modPath, bool includeOptional = false)
+#### `GetAllDependencies(string modPath, bool includeOptional = false)`
 Recursively get all (transitive) dependencies for a mod.
 
 **Example:**// Get only required dependencies (including transitive)
@@ -226,7 +217,7 @@ foreach (var dep in allDeps)
 {
     Console.WriteLine($"  - {dep}");
 }
-#### GetDependents(string modId, string folderPath)
+#### `GetDependents(string modId, string folderPath)`
 Get all mods that depend on a given mod.
 
 **Example:**var dependents = analyzer.GetDependents("jei", @"C:\mods");
@@ -242,7 +233,7 @@ if (dependents.Count > 0)
 {
     Console.WriteLine($"\n?? Removing JEI will affect {dependents.Count} other mods!");
 }
-#### GetModsWithMissingDependencies(string folderPath)
+#### `GetModsWithMissingDependencies(string folderPath)`
 Get mods that have missing required dependencies.
 
 **Example:**var modsWithMissingDeps = analyzer.GetModsWithMissingDependencies(@"C:\mods");
@@ -250,20 +241,16 @@ Get mods that have missing required dependencies.
 if (modsWithMissingDeps.Count > 0)
 {
     Console.WriteLine($"?? {modsWithMissingDeps.Count} mods have missing dependencies:");
-    
     foreach (var modId in modsWithMissingDeps)
     {
         var modPath = Directory.GetFiles(@"C:\mods", "*.jar")
             .FirstOrDefault(f => analyzer.ReadModMetadata(f)?.modId == modId);
-            
         if (modPath != null)
         {
             var requiredDeps = analyzer.GetRequiredDependencies(modPath);
             var availableMods = analyzer.ReadAllModMetadataInFolder(@"C:\mods")
                 .Select(m => m.modId).ToHashSet();
-            
             var missingDeps = requiredDeps.Where(dep => !availableMods.Contains(dep));
-            
             Console.WriteLine($"  {modId}:");
             foreach (var missing in missingDeps)
             {
@@ -274,7 +261,7 @@ if (modsWithMissingDeps.Count > 0)
 }
 ### Mod Query & Summary Methods
 
-#### GetModById(string modId, string folderPath)
+#### `GetModById(string modId, string folderPath)`
 Get metadata for a mod by its ID.
 
 **Example:**var jeiMeta = analyzer.GetModById("jei", @"C:\mods");
@@ -288,7 +275,7 @@ else
 {
     Console.WriteLine("JEI not found in mods folder");
 }
-#### GetModVersion(string modPath)
+#### `GetModVersion(string modPath)`
 Get the version of a mod.
 
 **Example:**var version = analyzer.GetModVersion(@"C:\mods\jei.jar");
@@ -303,37 +290,33 @@ foreach (var mod in mods)
     var name = Path.GetFileNameWithoutExtension(mod);
     Console.WriteLine($"  {name}: {ver ?? "Unknown"}");
 }
-#### GetModFileName(string modId, string folderPath)
+#### `GetModFileName(string modId, string folderPath)`
 Get the file name of a mod by its ID.
 
 **Example:**var fileName = analyzer.GetModFileName("jei", @"C:\mods");
 if (fileName != null)
 {
     Console.WriteLine($"JEI file: {fileName}");
-    
     // You can now use this to get the full path
     var fullPath = Path.Combine(@"C:\mods", fileName);
     Console.WriteLine($"Full path: {fullPath}");
 }
-#### GetModSummary(string modPath)
+#### `GetModSummary(string modPath)`
 Get a comprehensive summary string of all key metadata.
 
 **Example:**var summary = analyzer.GetModSummary(@"C:\mods\jei.jar");
 Console.WriteLine("=== JEI Summary ===");
-Console.WriteLine(summary);
-
-// Example output:
-// === JEI Summary ===
-// ID: jei
-// Name: Just Enough Items
-// Version: 15.2.0.27
-// Loader: Forge
-// LoaderVersion: 47.1.0
-// MCVersion: 1.20.1
-// Required: [forge, minecraft]
-// Optional: [waila, nei]
-// Incompatibilities: [toomanyitems]
-#### GetModsByLoader(string loader, string folderPath)
+Console.WriteLine(summary);// Example output:=== JEI Summary ===
+ID: jei
+Name: Just Enough Items
+Version: 15.2.0.27
+Loader: Forge
+LoaderVersion: 47.1.0
+MCVersion: 1.20.1
+Required: [forge, minecraft]
+Optional: [waila, nei]
+Incompatibilities: [toomanyitems]
+#### `GetModsByLoader(string loader, string folderPath)`
 Get all mods in a folder that use a specific loader.
 
 **Example:**var forgeMods = analyzer.GetModsByLoader("Forge", @"C:\mods");
@@ -356,7 +339,7 @@ if (forgeMods.Count > 0 && fabricMods.Count > 0)
 {
     Console.WriteLine("\n?? Warning: Mixed Forge and Fabric mods detected!");
 }
-#### GetModsByMinecraftVersion(string mcVersion, string folderPath)
+#### `GetModsByMinecraftVersion(string mcVersion, string folderPath)`
 Get all mods compatible with a specific Minecraft version.
 
 **Example:**var mods1201 = analyzer.GetModsByMinecraftVersion("1.20.1", @"C:\mods");
@@ -377,7 +360,7 @@ foreach (var mod in modsWithWildcard)
 }
 ### Crash Report Analysis
 
-#### ResolveCrashReport(string modsFolderPath, string crashReport)
+#### `ResolveCrashReport(string modsFolderPath, string crashReport)`
 Analyze a crash report to identify potentially problematic mods.
 
 **Example:**// Read crash report from file
@@ -389,7 +372,6 @@ var result = analyzer.ResolveCrashReport(@"C:\mods", crashReport);
 if (result is List<string> suspiciousMods)
 {
     Console.WriteLine($"?? Found {suspiciousMods.Count} potentially problematic mods:");
-    
     foreach (var modId in suspiciousMods)
     {
         var modMeta = analyzer.GetModById(modId, @"C:\mods");
@@ -402,7 +384,6 @@ if (result is List<string> suspiciousMods)
             Console.WriteLine($"  - {modId}");
         }
     }
-    
     Console.WriteLine("\n?? Try removing these mods one by one to isolate the issue.");
     Console.WriteLine("?? Check for mod updates or compatibility issues.");
 }
