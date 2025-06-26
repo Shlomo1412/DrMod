@@ -6,7 +6,7 @@ using System.Collections.Generic;
 
 namespace DrMod
 {
-    public class Class1
+    public class DrMod
     {
         // Reads mod metadata from a given file path (.jar, mods.toml, neoforge.mods.toml, fabric.mod.json, or quilt.mod.json)
         public ModMetadata? ReadModMetadata(string filePath)
@@ -85,7 +85,7 @@ namespace DrMod
         // Enhanced: Parse required, optional dependencies, incompatibilities, mod version, and package
         private ModMetadata? ParseForgeModTomlLines(IEnumerable<string> lines, string loader)
         {
-            var metadata = new DrMod.ModMetadata();
+            var metadata = new ModMetadata();
             metadata.loader = loader;
             var currentSection = string.Empty;
             foreach (var line in lines)
@@ -149,7 +149,7 @@ namespace DrMod
         {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
-            var metadata = new DrMod.ModMetadata();
+            var metadata = new ModMetadata();
             metadata.loader = loader;
             if (root.TryGetProperty("id", out var idProp))
                 metadata.modId = idProp.GetString();
