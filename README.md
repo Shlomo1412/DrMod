@@ -24,6 +24,32 @@ var analyzer = new DrMod();
 ```
 ## API Reference with Examples
 
+### Java Detection Methods
+
+#### `GetRequiredJavaVersion(string modPath)`
+Get the required Java version for a mod (e.g., 8, 17, 21).
+
+**Example:**
+
+```
+var javaVersion = analyzer.GetRequiredJavaVersion(@"C:\mods\jei.jar");
+Console.WriteLine($"JEI requires Java {javaVersion}+");
+```
+
+#### `FindRequiredJavaVersion(string modPath)`
+Get the required Java version for a mod (e.g., 8, 17, 21).
+
+**Example:**
+
+```
+var jdkPath = analyzer.FindRequiredJavaVersion(@"C:\mods\jei.jar");
+if (jdkPath != null)
+    Console.WriteLine($"Found suitable JDK at: {jdkPath}");
+else
+    Console.WriteLine("No suitable JDK found for this mod's requirements.");
+```
+
+
 ### Metadata & Validation Methods
 
 #### `ReadModMetadata(string filePath)`

@@ -1,8 +1,9 @@
-﻿using System.Text.Json;
-using System.Text.RegularExpressions;
+﻿using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
-using System.Collections.Generic;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace DrMod
 {
@@ -671,6 +672,134 @@ namespace DrMod
                 }
             }
             return result;
+        }
+
+
+
+        /// <summary>
+        /// Returns the required Java version (e.g., 8, 17, 21) for a given mod, based on its Minecraft version.
+        /// </summary>
+        public int GetRequiredJavaVersion(string modPath)
+        {
+            var metadata = ReadModMetadata(modPath);
+            if (metadata == null || string.IsNullOrEmpty(metadata.minecraftVersion))
+                return 17; // Default to Java 17 if unknown
+
+            var parts = metadata.minecraftVersion.Split('.');
+            if (parts.Length < 2) return 17;
+            if (!int.TryParse(parts[1], out int minor)) return 17;
+
+            // Version mapping:
+            return minor >= 21 ? 21 :
+                   minor >= 17 ? 17 : 8;
+        }
+
+        /// <summary>
+        /// Finds the path to a suitable JDK for the required Java version for the given mod.
+        /// Returns null if not found.
+        /// </summary>
+        public string? FindRequiredJavaVersion(string modPath)
+        {
+            int requiredJava = GetRequiredJavaVersion(modPath);
+
+            // 1) Look under %LocalAppData%\Modrix\JDKs\jdk-<requiredJava>*
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var jdkRoot = Path.Combine(localAppData, "Modrix", "JDKs");
+            if (Directory.Exists(jdkRoot))
+            {
+                var candidates = Directory
+                    .GetDirectories(jdkRoot, $"jdk-{requiredJava}*")
+                    .Where(IsValidJdk)
+                    .OrderByDescending(d => d)
+                    .ToList();
+                if (candidates.Count > 0)
+                    return candidates[0];
+            }
+
+            // 2) Check user's .jdks folder
+            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var userJdksPath = Path.Combine(userProfile, ".jdks");
+            if (Directory.Exists(userJdksPath))
+            {
+                var candidates = Directory
+                    .GetDirectories(userJdksPath, $"*jdk-{requiredJava}*")
+                    .Where(IsValidJdk)
+                    .OrderByDescending(d => d)
+                    .ToList();
+                if (candidates.Count > 0)
+                    return candidates[0];
+            }
+
+            // 3) JAVA_HOME
+            var sysJavaHome = Environment.GetEnvironmentVariable("JAVA_HOME");
+            if (!string.IsNullOrWhiteSpace(sysJavaHome) && Directory.Exists(sysJavaHome) && IsValidJdk(sysJavaHome))
+            {
+                var version = GetJavaVersion(sysJavaHome);
+                if (!string.IsNullOrEmpty(version) && version.StartsWith(requiredJava.ToString()))
+                    return sysJavaHome;
+            }
+
+            // 4) Common installation paths
+            var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            var commonJdkPaths = new[]
+            {
+                Path.Combine(programFiles, "Java"),
+                Path.Combine(programFiles, "Eclipse Foundation"),
+                Path.Combine(programFiles, "AdoptOpenJDK"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Java")
+            };
+            foreach (var basePath in commonJdkPaths)
+            {
+                if (Directory.Exists(basePath))
+                {
+                    var candidates = Directory
+                        .GetDirectories(basePath, $"*jdk*{requiredJava}*")
+                        .Where(IsValidJdk)
+                        .OrderByDescending(d => d)
+                        .ToList();
+                    if (candidates.Count > 0)
+                        return candidates[0];
+                }
+            }
+            return null;
+        }
+
+        private bool IsValidJdk(string path)
+        {
+            var javaExe = Path.Combine(path, "bin", "java.exe");
+            return File.Exists(javaExe);
+        }
+
+        private string GetJavaVersion(string jdkPath)
+        {
+            var javaExe = Path.Combine(jdkPath, "bin", "java.exe");
+            try
+            {
+                var startInfo = new ProcessStartInfo(javaExe, "-version")
+                {
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using (var process = Process.Start(startInfo))
+                {
+                    process.WaitForExit(2000);
+                    var versionOutput = process.StandardError.ReadToEnd();
+                    if (string.IsNullOrWhiteSpace(versionOutput))
+                        versionOutput = process.StandardOutput.ReadToEnd();
+                    var match = Regex.Match(
+                        versionOutput,
+                        @"version\s+""?(\d+(\.\d+)*)([._]\d+)?",
+                        RegexOptions.IgnoreCase
+                    );
+                    return match.Success ? match.Groups[1].Value : "Unknown";
+                }
+            }
+            catch
+            {
+                return "Unknown";
+            }
         }
     }
 }
