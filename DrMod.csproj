@@ -19,6 +19,8 @@
 		<Description>DrMod is a .NET 8 library for analyzing, validating, and managing Minecraft mods for Forge, NeoForge, Fabric, and Quilt.</Description>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<PackageProjectUrl>https://shlomo1412.github.io/Matrix-Site/drmod-docs.html</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/Shlomo1412/DrMod</RepositoryUrl>
 	</PropertyGroup>
 
   

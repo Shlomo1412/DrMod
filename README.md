@@ -1,4 +1,8 @@
-﻿# DrMod
+﻿[![NuGet](https://img.shields.io/nuget/v/DrMod.svg?style=flat-square&color=informational)](https://www.nuget.org/packages/DrMod)
+[![GitHub Repo](https://img.shields.io/badge/GitHub-DrMod-black?logo=github&style=flat-square)](https://github.com/Shlomo1412/DrMod)
+
+
+# DrMod
 
 DrMod is a .NET 8 library for analyzing, validating, and managing Minecraft mods for Forge, NeoForge, Fabric, and Quilt. It provides advanced tools for reading mod metadata, dependency analysis, conflict detection, crash report resolution, performance analysis, world compatibility checking, modpack importing, and more.
 
