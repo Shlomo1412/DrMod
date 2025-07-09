@@ -89,47 +89,76 @@ namespace DrMod
             var metadata = new ModMetadata();
             metadata.loader = loader;
             var currentSection = string.Empty;
+            var isInModSection = false;
+            var currentModId = string.Empty;
+            
             foreach (var line in lines)
             {
                 var trimmed = line.Trim();
+                
+                // Track section changes
                 if (trimmed.StartsWith("["))
                 {
                     currentSection = trimmed;
+                    isInModSection = trimmed.StartsWith("[[mods]]");
+                    
+                    // Handle dependency sections
+                    if (trimmed.StartsWith("[[dependencies.") && trimmed.EndsWith("]]"))
+                    {
+                        // Extract the target mod from [[dependencies.targetmod]]
+                        var targetMod = trimmed.Substring("[[dependencies.".Length);
+                        targetMod = targetMod.Substring(0, targetMod.Length - "]]".Length);
+                        currentModId = targetMod;
+                    }
                 }
-                if (line.StartsWith("modId"))
-                    metadata.modId = GetTomlValue(line);
-                else if (line.StartsWith("displayName"))
-                    metadata.name = GetTomlValue(line);
-                else if (line.StartsWith("description"))
-                    metadata.description = GetTomlValue(line);
-                else if (line.StartsWith("loaderVersion"))
+                
+                // Parse mod information (only in [[mods]] section)
+                if (isInModSection)
+                {
+                    if (line.StartsWith("modId"))
+                        metadata.modId = GetTomlValue(line);
+                    else if (line.StartsWith("displayName"))
+                        metadata.name = GetTomlValue(line);
+                    else if (line.StartsWith("description"))
+                        metadata.description = GetTomlValue(line);
+                    else if (line.StartsWith("version"))
+                        metadata.modVersion = GetTomlValue(line);
+                }
+                
+                // Parse global properties
+                if (line.StartsWith("loaderVersion"))
                     metadata.loaderVersion = GetTomlValue(line);
                 else if (line.StartsWith("mcVersion"))
                     metadata.minecraftVersion = GetTomlValue(line);
-                else if (line.StartsWith("version"))
-                    metadata.modVersion = GetTomlValue(line);
-                // Required dependencies
-                else if (currentSection.StartsWith("[[dependencies.") && line.Trim().StartsWith("mandatory") && line.Contains("true"))
+                
+                // Parse dependencies (in [[dependencies.modid]] sections)
+                if (currentSection.StartsWith("[[dependencies.") && !string.IsNullOrEmpty(currentModId))
                 {
-                    var depId = currentSection.Replace("[[dependencies.", "").Replace("]]", "").Trim();
-                    if (!string.IsNullOrEmpty(depId))
-                        metadata.requiredDependencies.Add(depId);
+                    if (line.Trim().StartsWith("mandatory"))
+                    {
+                        var mandatoryValue = GetTomlValue(line);
+                        if (mandatoryValue?.ToLower() == "true")
+                        {
+                            if (!metadata.requiredDependencies.Contains(currentModId))
+                                metadata.requiredDependencies.Add(currentModId);
+                        }
+                        else if (mandatoryValue?.ToLower() == "false")
+                        {
+                            if (!metadata.optionalDependencies.Contains(currentModId))
+                                metadata.optionalDependencies.Add(currentModId);
+                        }
+                    }
                 }
-                // Optional dependencies
-                else if (currentSection.StartsWith("[[dependencies.") && line.Trim().StartsWith("mandatory") && line.Contains("false"))
-                {
-                    var depId = currentSection.Replace("[[dependencies.", "").Replace("]]", "").Trim();
-                    if (!string.IsNullOrEmpty(depId))
-                        metadata.optionalDependencies.Add(depId);
-                }
-                // Incompatibilities (Forge/NeoForge: [[incompatibilities.MODID]])
-                else if (currentSection.StartsWith("[[incompatibilities."))
+                
+                // Handle incompatibilities (Forge/NeoForge: [[incompatibilities.MODID]])
+                if (currentSection.StartsWith("[[incompatibilities."))
                 {
                     var incId = currentSection.Replace("[[incompatibilities.", "").Replace("]]", "").Trim();
                     if (!string.IsNullOrEmpty(incId) && !metadata.incompatibilities.Contains(incId))
                         metadata.incompatibilities.Add(incId);
                 }
             }
+            
             return metadata;
         }
 
@@ -148,81 +177,123 @@ namespace DrMod
         // Enhanced: Parse required, optional dependencies, incompatibilities, mod version, and package for Fabric/Quilt
         private ModMetadata? ParseFabricModJsonString(string json, string loader)
         {
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-            var metadata = new ModMetadata();
-            metadata.loader = loader;
-            if (root.TryGetProperty("id", out var idProp))
-                metadata.modId = idProp.GetString();
-            if (root.TryGetProperty("name", out var nameProp))
-                metadata.name = nameProp.GetString();
-            if (root.TryGetProperty("description", out var descProp))
-                metadata.description = descProp.GetString();
-            if (root.TryGetProperty("version", out var verProp))
-                metadata.modVersion = verProp.GetString();
-            if (root.TryGetProperty("depends", out var dependsProp))
+            try
             {
-                if (dependsProp.ValueKind == JsonValueKind.Object)
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                var metadata = new ModMetadata();
+                metadata.loader = loader;
+                
+                if (root.TryGetProperty("id", out var idProp))
+                    metadata.modId = idProp.GetString();
+                if (root.TryGetProperty("name", out var nameProp))
+                    metadata.name = nameProp.GetString();
+                if (root.TryGetProperty("description", out var descProp))
+                    metadata.description = descProp.GetString();
+                if (root.TryGetProperty("version", out var verProp))
+                    metadata.modVersion = verProp.GetString();
+                
+                // Parse dependencies
+                if (root.TryGetProperty("depends", out var dependsProp))
                 {
-                    foreach (var dep in dependsProp.EnumerateObject())
+                    if (dependsProp.ValueKind == JsonValueKind.Object)
                     {
-                        if (dep.Name != "minecraft")
-                            metadata.requiredDependencies.Add(dep.Name);
+                        foreach (var dep in dependsProp.EnumerateObject())
+                        {
+                            if (dep.Name == "minecraft")
+                            {
+                                // Handle minecraft version specially
+                                if (dep.Value.ValueKind == JsonValueKind.String)
+                                {
+                                    metadata.minecraftVersion = dep.Value.GetString();
+                                }
+                                else if (dep.Value.ValueKind == JsonValueKind.Array)
+                                {
+                                    // If minecraft is an array, take the first element
+                                    var firstElement = dep.Value.EnumerateArray().FirstOrDefault();
+                                    if (firstElement.ValueKind == JsonValueKind.String)
+                                    {
+                                        metadata.minecraftVersion = firstElement.GetString();
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                // Add to required dependencies if not minecraft
+                                metadata.requiredDependencies.Add(dep.Name);
+                            }
+                        }
+                    }
+                    else if (dependsProp.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var dep in dependsProp.EnumerateArray())
+                        {
+                            if (dep.ValueKind == JsonValueKind.String)
+                            {
+                                var depId = dep.GetString();
+                                if (depId != null && depId != "minecraft")
+                                    metadata.requiredDependencies.Add(depId);
+                            }
+                            else if (dep.ValueKind == JsonValueKind.Object && dep.TryGetProperty("id", out var idDepProp))
+                            {
+                                var depId = idDepProp.GetString();
+                                if (depId != null && depId != "minecraft")
+                                    metadata.requiredDependencies.Add(depId);
+                            }
+                        }
                     }
                 }
-                else if (dependsProp.ValueKind == JsonValueKind.Array)
+                
+                // Optional dependencies (Fabric/Quilt: "suggests")
+                if (root.TryGetProperty("suggests", out var suggestsProp) && suggestsProp.ValueKind == JsonValueKind.Object)
                 {
-                    foreach (var dep in dependsProp.EnumerateArray())
+                    foreach (var dep in suggestsProp.EnumerateObject())
                     {
-                        if (dep.ValueKind == JsonValueKind.String)
-                            metadata.requiredDependencies.Add(dep.GetString()!);
-                        else if (dep.ValueKind == JsonValueKind.Object && dep.TryGetProperty("id", out var idDepProp))
-                            metadata.requiredDependencies.Add(idDepProp.GetString()!);
+                        metadata.optionalDependencies.Add(dep.Name);
                     }
                 }
+                
+                // Incompatibilities (Fabric/Quilt: "breaks" or "conflicts")
+                if (root.TryGetProperty("breaks", out var breaksProp))
+                {
+                    if (breaksProp.ValueKind == JsonValueKind.Object)
+                    {
+                        foreach (var dep in breaksProp.EnumerateObject())
+                            metadata.incompatibilities.Add(dep.Name);
+                    }
+                    else if (breaksProp.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var dep in breaksProp.EnumerateArray())
+                            if (dep.ValueKind == JsonValueKind.String)
+                                metadata.incompatibilities.Add(dep.GetString()!);
+                    }
+                }
+                if (root.TryGetProperty("conflicts", out var conflictsProp))
+                {
+                    if (conflictsProp.ValueKind == JsonValueKind.Object)
+                    {
+                        foreach (var dep in conflictsProp.EnumerateObject())
+                            metadata.incompatibilities.Add(dep.Name);
+                    }
+                    else if (conflictsProp.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var dep in conflictsProp.EnumerateArray())
+                            if (dep.ValueKind == JsonValueKind.String)
+                                metadata.incompatibilities.Add(dep.GetString()!);
+                    }
+                }
+                
+                if (root.TryGetProperty("schemaVersion", out var loaderVerProp))
+                    metadata.loaderVersion = loaderVerProp.ToString();
+                
+                return metadata;
             }
-            // Optional dependencies (Fabric/Quilt: "suggests")
-            if (root.TryGetProperty("suggests", out var suggestsProp) && suggestsProp.ValueKind == JsonValueKind.Object)
+            catch (Exception ex)
             {
-                foreach (var dep in suggestsProp.EnumerateObject())
-                {
-                    metadata.optionalDependencies.Add(dep.Name);
-                }
+                // Return null if parsing fails, but don't crash the entire application
+                Console.WriteLine($"Error parsing Fabric/Quilt mod JSON: {ex.Message}");
+                return null;
             }
-            // Incompatibilities (Fabric/Quilt: "breaks" or "conflicts")
-            if (root.TryGetProperty("breaks", out var breaksProp))
-            {
-                if (breaksProp.ValueKind == JsonValueKind.Object)
-                {
-                    foreach (var dep in breaksProp.EnumerateObject())
-                        metadata.incompatibilities.Add(dep.Name);
-                }
-                else if (breaksProp.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var dep in breaksProp.EnumerateArray())
-                        if (dep.ValueKind == JsonValueKind.String)
-                            metadata.incompatibilities.Add(dep.GetString()!);
-                }
-            }
-            if (root.TryGetProperty("conflicts", out var conflictsProp))
-            {
-                if (conflictsProp.ValueKind == JsonValueKind.Object)
-                {
-                    foreach (var dep in conflictsProp.EnumerateObject())
-                        metadata.incompatibilities.Add(dep.Name);
-                }
-                else if (conflictsProp.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var dep in conflictsProp.EnumerateArray())
-                        if (dep.ValueKind == JsonValueKind.String)
-                            metadata.incompatibilities.Add(dep.GetString()!);
-                }
-            }
-            if (root.TryGetProperty("schemaVersion", out var loaderVerProp))
-                metadata.loaderVersion = loaderVerProp.ToString();
-            if (root.TryGetProperty("depends", out var dependsProp2) && dependsProp2.ValueKind == JsonValueKind.Object && dependsProp2.TryGetProperty("minecraft", out var mcProp))
-                metadata.minecraftVersion = mcProp.GetString();
-            return metadata;
         }
 
         public bool IsCompatible(string modPath, string mcVersion, string loader, string loaderVersion)
