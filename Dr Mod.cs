@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -38,6 +39,8 @@ namespace DrMod
         private ModMetadata? ReadModMetadataFromJar(string jarPath)
         {
             using var archive = ZipFile.OpenRead(jarPath);
+            ModMetadata? metadata = null;
+            
             // Try NeoForge first
             var neoforgeEntry = archive.GetEntry("META-INF/neoforge.mods.toml");
             if (neoforgeEntry != null)
@@ -46,35 +49,53 @@ namespace DrMod
                 var lines = new List<string>();
                 while (!reader.EndOfStream)
                     lines.Add(reader.ReadLine()!);
-                return ParseForgeModTomlLines(lines, "NeoForge");
+                metadata = ParseForgeModTomlLines(lines, "NeoForge");
             }
             // Try Forge
-            var tomlEntry = archive.GetEntry("META-INF/mods.toml");
-            if (tomlEntry != null)
+            else
             {
-                using var reader = new StreamReader(tomlEntry.Open());
-                var lines = new List<string>();
-                while (!reader.EndOfStream)
-                    lines.Add(reader.ReadLine()!);
-                return ParseForgeModTomlLines(lines, "Forge");
+                var tomlEntry = archive.GetEntry("META-INF/mods.toml");
+                if (tomlEntry != null)
+                {
+                    using var reader = new StreamReader(tomlEntry.Open());
+                    var lines = new List<string>();
+                    while (!reader.EndOfStream)
+                        lines.Add(reader.ReadLine()!);
+                    metadata = ParseForgeModTomlLines(lines, "Forge");
+                }
             }
-            // Try Quilt
-            var quiltEntry = archive.GetEntry("quilt.mod.json");
-            if (quiltEntry != null)
+            
+            // Try Quilt if no Forge/NeoForge found
+            if (metadata == null)
             {
-                using var reader = new StreamReader(quiltEntry.Open());
-                var json = reader.ReadToEnd();
-                return ParseFabricModJsonString(json, "Quilt");
+                var quiltEntry = archive.GetEntry("quilt.mod.json");
+                if (quiltEntry != null)
+                {
+                    using var reader = new StreamReader(quiltEntry.Open());
+                    var json = reader.ReadToEnd();
+                    metadata = ParseFabricModJsonString(json, "Quilt");
+                }
             }
-            // Try Fabric
-            var fabricEntry = archive.GetEntry("fabric.mod.json");
-            if (fabricEntry != null)
+            
+            // Try Fabric if no other loader found
+            if (metadata == null)
             {
-                using var reader = new StreamReader(fabricEntry.Open());
-                var json = reader.ReadToEnd();
-                return ParseFabricModJsonString(json, "Fabric");
+                var fabricEntry = archive.GetEntry("fabric.mod.json");
+                if (fabricEntry != null)
+                {
+                    using var reader = new StreamReader(fabricEntry.Open());
+                    var json = reader.ReadToEnd();
+                    metadata = ParseFabricModJsonString(json, "Fabric");
+                }
             }
-            return null;
+            
+            // Set the filename if metadata was found
+            if (metadata != null)
+            {
+                metadata.modFileName = Path.GetFileName(jarPath);
+            }
+            
+            return metadata;
         }
 
         private ModMetadata? ReadForgeModToml(string filePath, string loader)
@@ -90,62 +111,122 @@ namespace DrMod
             metadata.loader = loader;
             var currentSection = string.Empty;
             var isInModSection = false;
-            var currentModId = string.Empty;
+            var isInDependencySection = false;
+            var currentDependencyModId = string.Empty;
+            var isInMultilineString = false;
+            var multilineStringBuilder = new StringBuilder();
+            var multilineStringKey = string.Empty;
             
             foreach (var line in lines)
             {
                 var trimmed = line.Trim();
+                
+                // Handle multiline strings (triple quotes)
+                if (isInMultilineString)
+                {
+                    if (trimmed.EndsWith("'''"))
+                    {
+                        // End of multiline string
+                        multilineStringBuilder.Append(" " + trimmed.Substring(0, trimmed.Length - 3));
+                        var multilineValue = multilineStringBuilder.ToString().Trim();
+                        
+                        // Apply the multiline value to the appropriate property
+                        if (isInModSection && multilineStringKey == "description")
+                            metadata.description = multilineValue;
+                        
+                        isInMultilineString = false;
+                        multilineStringBuilder.Clear();
+                        multilineStringKey = string.Empty;
+                    }
+                    else
+                    {
+                        // Continue collecting multiline content
+                        multilineStringBuilder.Append(" " + trimmed);
+                    }
+                    continue;
+                }
+                
+                // Skip empty lines and comments
+                if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith("#"))
+                    continue;
                 
                 // Track section changes
                 if (trimmed.StartsWith("["))
                 {
                     currentSection = trimmed;
                     isInModSection = trimmed.StartsWith("[[mods]]");
+                    isInDependencySection = trimmed.StartsWith("[[dependencies.");
                     
-                    // Handle dependency sections
-                    if (trimmed.StartsWith("[[dependencies.") && trimmed.EndsWith("]]"))
+                    if (isInDependencySection)
                     {
-                        // Extract the target mod from [[dependencies.targetmod]]
-                        var targetMod = trimmed.Substring("[[dependencies.".Length);
-                        targetMod = targetMod.Substring(0, targetMod.Length - "]]".Length);
-                        currentModId = targetMod;
+                        // Reset dependency context for new dependency
+                        currentDependencyModId = string.Empty;
                     }
                 }
                 
                 // Parse mod information (only in [[mods]] section)
                 if (isInModSection)
                 {
-                    if (line.StartsWith("modId"))
+                    if (line.Contains("modId"))
                         metadata.modId = GetTomlValue(line);
-                    else if (line.StartsWith("displayName"))
+                    else if (line.Contains("displayName"))
                         metadata.name = GetTomlValue(line);
-                    else if (line.StartsWith("description"))
-                        metadata.description = GetTomlValue(line);
-                    else if (line.StartsWith("version"))
+                    else if (line.Contains("description"))
+                    {
+                        var descValue = GetTomlValue(line);
+                        if (descValue != null && descValue.StartsWith("'''"))
+                        {
+                            // Start of multiline string
+                            isInMultilineString = true;
+                            multilineStringKey = "description";
+                            multilineStringBuilder.Append(descValue.Substring(3));
+                        }
+                        else
+                        {
+                            metadata.description = descValue;
+                        }
+                    }
+                    else if (line.Contains("version"))
                         metadata.modVersion = GetTomlValue(line);
                 }
                 
-                // Parse global properties
-                if (line.StartsWith("loaderVersion"))
-                    metadata.loaderVersion = GetTomlValue(line);
-                else if (line.StartsWith("mcVersion"))
-                    metadata.minecraftVersion = GetTomlValue(line);
-                
-                // Parse dependencies (in [[dependencies.modid]] sections)
-                if (currentSection.StartsWith("[[dependencies.") && !string.IsNullOrEmpty(currentModId))
+                // Parse global properties (can be anywhere in file when not in specific sections)
+                if (!isInModSection && !isInDependencySection)
                 {
-                    if (line.Trim().StartsWith("mandatory"))
+                    if (line.Contains("loaderVersion"))
+                        metadata.loaderVersion = GetTomlValue(line);
+                    else if (line.Contains("mcVersion") || line.Contains("minecraftVersion"))
+                        metadata.minecraftVersion = GetTomlValue(line);
+                }
+                
+                // Parse dependencies (in [[dependencies.*]] sections)
+                if (isInDependencySection)
+                {
+                    if (line.Contains("modId"))
+                    {
+                        currentDependencyModId = GetTomlValue(line) ?? "";
+                    }
+                    else if (line.Contains("mandatory") && !string.IsNullOrEmpty(currentDependencyModId))
                     {
                         var mandatoryValue = GetTomlValue(line);
                         if (mandatoryValue?.ToLower() == "true")
                         {
-                            if (!metadata.requiredDependencies.Contains(currentModId))
-                                metadata.requiredDependencies.Add(currentModId);
+                            if (!metadata.requiredDependencies.Contains(currentDependencyModId) && currentDependencyModId != metadata.modId)
+                                metadata.requiredDependencies.Add(currentDependencyModId);
                         }
                         else if (mandatoryValue?.ToLower() == "false")
                         {
-                            if (!metadata.optionalDependencies.Contains(currentModId))
-                                metadata.optionalDependencies.Add(currentModId);
+                            if (!metadata.optionalDependencies.Contains(currentDependencyModId) && currentDependencyModId != metadata.modId)
+                                metadata.optionalDependencies.Add(currentDependencyModId);
+                        }
+                    }
+                    else if (line.Contains("versionRange") && currentDependencyModId == "minecraft")
+                    {
+                        // Extract Minecraft version from versionRange
+                        var versionRange = GetTomlValue(line);
+                        if (!string.IsNullOrEmpty(versionRange))
+                        {
+                            metadata.minecraftVersion = ExtractMinecraftVersionFromRange(versionRange);
                         }
                     }
                 }
@@ -162,10 +243,58 @@ namespace DrMod
             return metadata;
         }
 
+        /// <summary>
+        /// Extracts a Minecraft version from a version range string like "[1.20.1,)" or "[1.20.1,1.21.0)"
+        /// </summary>
+        private string ExtractMinecraftVersionFromRange(string versionRange)
+        {
+            if (string.IsNullOrEmpty(versionRange))
+                return "";
+
+            // Remove brackets and parentheses
+            var cleaned = versionRange.Trim('[', ']', '(', ')');
+            
+            // Split by comma and take the first part (minimum version)
+            var parts = cleaned.Split(',');
+            if (parts.Length > 0)
+            {
+                var minVersion = parts[0].Trim();
+                return string.IsNullOrEmpty(minVersion) ? "" : minVersion;
+            }
+
+            return "";
+        }
+
         private string? GetTomlValue(string line)
         {
-            var match = Regex.Match(line, "=\\s*['\"]?(.*?)['\"]?$");
-            return match.Success ? match.Groups[1].Value : null;
+            // Handle different TOML value formats
+            if (!line.Contains('='))
+                return null;
+
+            var parts = line.Split('=', 2);
+            if (parts.Length != 2)
+                return null;
+
+            var value = parts[1].Trim();
+
+            // Remove quotes (single or double) if present
+            if ((value.StartsWith("\"") && value.EndsWith("\"")) ||
+                (value.StartsWith("'") && value.EndsWith("'")))
+            {
+                if (value.Length >= 2)
+                {
+                    value = value.Substring(1, value.Length - 2);
+                    // Unescape common TOML escape sequences
+                    value = value.Replace("\\\"", "\"")
+                                 .Replace("\\'", "'")
+                                 .Replace("\\\\", "\\")
+                                 .Replace("\\n", "\n")
+                                 .Replace("\\r", "\r")
+                                 .Replace("\\t", "\t");
+                }
+            }
+
+            return string.IsNullOrWhiteSpace(value) ? null : value;
         }
 
         private ModMetadata? ReadFabricModJson(string filePath, string loader)
@@ -179,6 +308,9 @@ namespace DrMod
         {
             try
             {
+                // Sanitize JSON by fixing common issues with unescaped characters
+                json = SanitizeJsonString(json);
+                
                 using var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
                 var metadata = new ModMetadata();
@@ -293,6 +425,51 @@ namespace DrMod
                 // Return null if parsing fails, but don't crash the entire application
                 Console.WriteLine($"Error parsing Fabric/Quilt mod JSON: {ex.Message}");
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Sanitizes JSON string by fixing common issues with unescaped characters that cause parsing errors.
+        /// </summary>
+        private string SanitizeJsonString(string json)
+        {
+            if (string.IsNullOrEmpty(json))
+                return json;
+
+            try
+            {
+                // Fix unescaped characters within JSON string values
+                // This regex finds string values and replaces problematic characters within them
+                var stringValuePattern = @"""([^""\\]*(\\.[^""\\]*)*)""";
+                
+                json = Regex.Replace(json, stringValuePattern, match =>
+                {
+                    var fullMatch = match.Value;
+                    var stringContent = match.Groups[1].Value;
+                    
+                    // Only process if this looks like it contains unescaped characters
+                    if (stringContent.Contains('\n') || stringContent.Contains('\r') || stringContent.Contains('\t'))
+                    {
+                        // Escape common problematic characters
+                        stringContent = stringContent
+                            .Replace("\\", "\\\\")  // Escape backslashes first
+                            .Replace("\n", "\\n")   // Escape newlines (0x0A)
+                            .Replace("\r", "\\r")   // Escape carriage returns (0x0D)
+                            .Replace("\t", "\\t")   // Escape tabs
+                            .Replace("\"", "\\\""); // Escape quotes
+                        
+                        return $"\"{stringContent}\"";
+                    }
+                    
+                    return fullMatch;
+                });
+
+                return json;
+            }
+            catch
+            {
+                // If sanitization fails, return the original string
+                return json;
             }
         }
 
@@ -1353,7 +1530,7 @@ namespace DrMod
                     info.PerformanceCategory = "Heavy";
 
                 // Add warnings for known heavy mods
-                var heavyModPatterns = new[] { "optifine", "create", "mekanism", "thermal", "gregtech" };
+                var heavyModPatterns = new[] {"optifine", "create", "mekanism", "thermal", "gregtech"};
                 foreach (var pattern in heavyModPatterns)
                 {
                     if (info.ModId?.Contains(pattern, StringComparison.OrdinalIgnoreCase) == true ||

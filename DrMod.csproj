@@ -13,131 +13,68 @@
 	<PropertyGroup>
 		<TargetFramework>net8.0</TargetFramework>
 		<PackageId>DrMod</PackageId>
-		<Version>1.3.0</Version>
-		<releaseNotes>
-			# 🧪 DrMod 1.3.0 and 1.2.0 (Because the previous release hadn't include Release notes) Release Notes
+		<Version>1.5.0</Version>
+		<PackageReleaseNotes>
+			# 🚀 DrMod 1.5.0 Release Notes
 
 			**Release Date:** January 2025
 			**Target Framework:** .NET 8.0
 
-			---
+			## 🎯 Advanced TOML Parsing Engine
 
-			## 🎉 What's New
+			### New Enterprise-Grade TOML Features
+			- **Multiline String Support (`'''`):** Full support for TOML triple-quote multiline strings, enabling complex mod descriptions across multiple lines
+			- **Version Range Extraction:** New `ExtractMinecraftVersionFromRange()` method intelligently parses Forge version ranges like `[1.20.1,)` or `[1.20.1,1.21.0)`
+			- **Enhanced Dependency Context Tracking:** Separate `isInDependencySection` and `currentDependencyModId` tracking for accurate dependency parsing
+			- **Advanced Section Management:** Improved TOML section detection with proper context switching between mod sections and dependency sections
 
-			### Enhanced Mod Loader Support
-			- **Improved Fabric/Quilt JSON Parsing:** Complete rewrite of JSON metadata parser with robust error handling
-			- **Fixed NeoForge Detection:** Prioritized NeoForge mod detection over legacy Forge detection
-			- **Better TOML Parsing:** Enhanced Forge/NeoForge TOML parser with improved section handling
+			### Robust Metadata Extraction
+			- **Smart Property Detection:** Enhanced global property parsing with context-aware handling of various TOML structures
+			- **Complete Description Parsing:** No more truncated descriptions - properly handles complex, multiline mod descriptions
+			- **Accurate Minecraft Version Detection:** Extracts exact Minecraft versions from complex version range specifications
 
-			### New Performance Analysis Features
-			- **Memory Usage Estimation:** `GetModsByMemoryUsage()` for sorting mods by estimated memory consumption
-			- **Performance Impact Detection:** `DetectPerformanceImpactingMods()` identifies resource-heavy mods
-			- **Detailed Performance Info:** `GetModPerformanceInfo()` provides comprehensive performance metrics
-			- **File Size Analysis:** `GetModFileSize()` for quick mod file size queries
+			## 🔧 Critical Parser Improvements
 
-			### World Compatibility System
-			- **World Analysis:** `GetWorldRequiredMods()` scans world saves for required mod dependencies
-			- **Compatibility Reports:** `CheckWorldCompatibility()` generates detailed compatibility reports
-			- **Save Validation:** Automatic detection of missing mods for existing worlds
+			### JSON Parsing Stability (Fabric/Quilt)
+			- **Fixed '0x0A' JSON Parsing Error:** Resolved critical issue where Fabric/Quilt mods with unescaped newlines in JSON strings caused parsing failures
+			- **Added JSON Sanitization:** Advanced `SanitizeJsonString()` method automatically escapes problematic characters (newlines, tabs, carriage returns)
+			- **Error Resilience:** Parser gracefully handles malformed JSON without crashing analysis
 
-			### Mod Management Tools
-			- **Enable/Disable Functionality:** `DisableMod()` and `EnableMod()` for temporary mod management
-			- **Corruption Detection:** `FindCorruptedMods()` identifies damaged or invalid mod files
-			- **Repair Attempts:** `RepairMod()` basic mod validation and repair functionality
+			### TOML Parsing Revolution (Forge/NeoForge)
+			- **Completely Rewritten Parser:** Enterprise-grade TOML processing with support for complex mod metadata structures
+			- **Enhanced Value Parser:** Advanced `GetTomlValue()` method handles quoted strings, escape sequences, and complex TOML formats
+			- **Automatic Filename Detection:** JAR-based mods properly extract and display filenames in metadata
+			- **Self-Dependency Prevention:** Intelligent validation prevents mods from incorrectly depending on themselves
 
-			### Modpack Support
-			- **Modrinth Import:** Full support for `.mrpack` modpack files
-			- **CurseForge Import:** Support for CurseForge `.zip` modpack imports
-			- **Automatic Extraction:** `ImportModPack()` handles both formats seamlessly
+			## 🔄 What This Transforms
 
-			### Java Environment Detection
-			- **JDK Discovery:** `FindRequiredJavaVersion()` locates suitable Java installations
-			- **Version Mapping:** `GetRequiredJavaVersion()` determines required Java version from Minecraft version
-			- **Multiple Path Support:** Searches common JDK installation locations
+			### Before 1.5.0:
+			- ❌ Complex TOML descriptions truncated or showing as just `'`
+			- ❌ Version ranges like `[1.20.1,)` not properly parsed
+			- ❌ Multiline mod descriptions lost or corrupted
+			- ❌ Inconsistent dependency context tracking
+			- ❌ Missing file names showing as "N/A"
 
-			---
+			### After 1.5.0:
+			- ✅ Complete multiline descriptions preserved and displayed
+			- ✅ Intelligent version range parsing extracts exact Minecraft versions
+			- ✅ Advanced TOML structures handled with enterprise-grade reliability
+			- ✅ Perfect dependency context tracking without false positives
+			- ✅ Comprehensive metadata extraction across all mod formats
 
-			## 🔧 Bug Fixes
+			## 📊 Real-World Impact
 
-			### Critical Parser Fixes
-			- 🚨 **Fixed `InvalidOperationException`:** Resolved crashes when parsing Fabric/Quilt mods with array-type `minecraft` dependencies
-			- 🔍 **Improved Error Handling:** Added comprehensive try-catch blocks to prevent application crashes
-			- 📊 **Enhanced Type Safety:** Added proper JSON type checking before value extraction
-
-			### Dependency Resolution Improvements
-			- **Duplicate Prevention:** Fixed duplicate dependency entries in mod metadata
-			- **Section Parsing:** Corrected TOML section handling for accurate dependency extraction
-			- **Self-Dependency Detection:** Added validation to prevent mods from depending on themselves
-
-			### Metadata Accuracy
-			- **Mod ID Extraction:** Fixed incorrect mod ID assignment from dependency sections
-			- **Version Compatibility:** Improved version range parsing and compatibility checks
-			- **Loader Detection:** Enhanced loader type identification accuracy
-
-			---
-
-			## 🔄 Improvements
-
-			### Parser Robustness
-			- **Fault Tolerance:** Parsers now continue processing even when individual mods fail to parse
-			- **Better Logging:** Added error logging for debugging malformed mod files
-			- **Graceful Degradation:** Failed parsing returns `null` instead of crashing
-
-			### Performance Optimizations
-			- **Lazy Loading:** Improved file reading efficiency for large mod collections
-			- **Memory Management:** Better disposal of file handles and temporary objects
-			- **Caching:** Reduced redundant file system operations
-
-			### API Enhancements
-			- **Consistent Return Types:** Standardized return types across similar methods
-			- **Null Safety:** Enhanced nullable reference type usage throughout the library
-			- **Documentation:** Improved XML documentation for all public methods
-
-			---
-
-			## 📋 Technical Details
-
-			### Supported Formats
-			- ✅ Forge: `META-INF/mods.toml`
-			- ✅ NeoForge: `META-INF/neoforge.mods.toml`
-			- ✅ Fabric: `fabric.mod.json`
-			- ✅ Quilt: `quilt.mod.json`
-			- ✅ JAR Files: All mod loader types within JAR archives
-			- ✅ Modpacks: Modrinth (`.mrpack`) and CurseForge (`.zip`)
-
-			### Platform Support
-			- **Windows:** Full support with JDK detection
-			- **Cross-Platform:** .NET 8 compatibility for Linux and macOS
-			- **Architecture:** x64 and ARM64 support
-
-			---
-
-			## ⚠️ Breaking Changes
-			- **None** – This release maintains full backward compatibility with existing API usage
-
-			---
-
-			## 🛡️ Known Issues
-			- Gradle build file parsing not yet implemented (planned for future release)
-			- Advanced version range parsing (Maven-style) not fully supported
-			- Mod repair functionality is basic and may require external mod sources
-
-			---
-
-			## 📦 Dependencies
-			- **.NET 8.0:** Required runtime
-			- **System.Text.Json:** Built-in JSON parsing
-			- **System.IO.Compression:** ZIP file handling
-
-			---
+			This release provides **enterprise-grade mod analysis** with dramatically improved parsing accuracy for:
+			- **Complex Forge/NeoForge mods** with advanced TOML structures
+			- **Modern Fabric/Quilt mods** with sophisticated JSON metadata
+			- **Version range specifications** used by professional mod developers
+			- **Multiline documentation** and detailed mod descriptions
 
 			## 🔗 Links
-			- [NuGet Package: DrMod 1.2.0](https://www.nuget.org/packages/DrMod)
-			- [Documentation: DrMod Docs](#)
-			- [Source Code: GitHub Repository](https://github.com/Shlomo1412/DrMod)
-			- [License: MIT](https://github.com/Shlomo1412/DrMod/blob/main/LICENSE)
-
-		</releaseNotes>
+			- [NuGet Package: DrMod 1.5.0](https://www.nuget.org/packages/DrMod)
+			- [Documentation](https://shlomo1412.github.io/Matrix-Site/drmod-docs.html)
+			- [Source Code](https://github.com/Shlomo1412/DrMod)
+		</PackageReleaseNotes>
 		<Authors>Shlomo1412</Authors>
 		<Company>MatriX</Company>
 		<Description>DrMod is a .NET 8 library for analyzing, validating, and managing Minecraft mods for Forge, NeoForge, Fabric, and Quilt.</Description>
