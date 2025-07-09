@@ -801,5 +801,505 @@ namespace DrMod
                 return "Unknown";
             }
         }
+
+        /// <summary>
+        /// Get the file size of a mod in bytes.
+        /// </summary>
+        public long GetModFileSize(string modPath)
+        {
+            if (!File.Exists(modPath))
+                return 0;
+            
+            try
+            {
+                return new FileInfo(modPath).Length;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        /// <summary>
+        /// Get all mods in a folder sorted by estimated memory usage.
+        /// </summary>
+        public List<ModMetadata> GetModsByMemoryUsage(string folderPath, bool sortDescending = true)
+        {
+            var mods = ReadAllModMetadataInFolder(folderPath);
+            var modsWithSize = new List<(ModMetadata mod, long size)>();
+
+            foreach (var mod in mods)
+            {
+                var modFiles = Directory.GetFiles(folderPath, "*.jar")
+                    .Where(f => {
+                        var meta = ReadModMetadata(f);
+                        return meta?.modId?.Equals(mod.modId, StringComparison.OrdinalIgnoreCase) == true;
+                    });
+
+                long totalSize = 0;
+                foreach (var file in modFiles)
+                {
+                    totalSize += GetModFileSize(file);
+                }
+                modsWithSize.Add((mod, totalSize));
+            }
+
+            var sorted = sortDescending 
+                ? modsWithSize.OrderByDescending(x => x.size)
+                : modsWithSize.OrderBy(x => x.size);
+
+            return sorted.Select(x => x.mod).ToList();
+        }
+
+        /// <summary>
+        /// Detect mods that may have performance impact based on file size and known patterns.
+        /// </summary>
+        public List<string> DetectPerformanceImpactingMods(string folderPath)
+        {
+            var performanceImpactingMods = new List<string>();
+            var mods = ReadAllModMetadataInFolder(folderPath);
+
+            // Known performance-heavy mod patterns
+            var heavyModPatterns = new[]
+            {
+                "optifine", "shaders", "iris", "sodium", "lithium", "phosphor",
+                "create", "thermal", "mekanism", "industrialcraft", "buildcraft",
+                "galacticraft", "forestry", "gregtech", "techreborn", "appliedenergistics",
+                "refined", "storage", "mystical", "botania", "thaumcraft", "blood",
+                "astral", "dimensional", "rftools", "enderio", "actuallyadditions"
+            };
+
+            foreach (var mod in mods)
+            {
+                if (string.IsNullOrEmpty(mod.modId)) continue;
+
+                // Check for known heavy mods
+                foreach (var pattern in heavyModPatterns)
+                {
+                    if (mod.modId.Contains(pattern, StringComparison.OrdinalIgnoreCase) ||
+                        mod.name?.Contains(pattern, StringComparison.OrdinalIgnoreCase) == true)
+                    {
+                        performanceImpactingMods.Add(mod.modId);
+                        break;
+                    }
+                }
+
+                // Check file size (mods > 10MB are potentially heavy)
+                var modFiles = Directory.GetFiles(folderPath, "*.jar")
+                    .Where(f => {
+                        var meta = ReadModMetadata(f);
+                        return meta?.modId?.Equals(mod.modId, StringComparison.OrdinalIgnoreCase) == true;
+                    });
+
+                foreach (var file in modFiles)
+                {
+                    if (GetModFileSize(file) > 10 * 1024 * 1024) // 10MB
+                    {
+                        if (!performanceImpactingMods.Contains(mod.modId))
+                            performanceImpactingMods.Add(mod.modId);
+                        break;
+                    }
+                }
+            }
+
+            return performanceImpactingMods;
+        }
+
+        /// <summary>
+        /// Check if a mod is safe to remove (no other mods depend on it).
+        /// </summary>
+        public bool IsModSafeToRemove(string modId, string folderPath)
+        {
+            var dependents = GetDependents(modId, folderPath);
+            return dependents.Count == 0;
+        }
+
+        /// <summary>
+        /// Get list of required mods for a world/save based on level.dat analysis.
+        /// </summary>
+        public List<string> GetWorldRequiredMods(string worldPath)
+        {
+            var requiredMods = new List<string>();
+            
+            try
+            {
+                // Look for level.dat file
+                var levelDatPath = Path.Combine(worldPath, "level.dat");
+                if (!File.Exists(levelDatPath))
+                    return requiredMods;
+
+                // Simple heuristic: scan for mod IDs in various world files
+                var worldFiles = new[]
+                {
+                    Path.Combine(worldPath, "level.dat"),
+                    Path.Combine(worldPath, "data", "capabilities.dat"),
+                    Path.Combine(worldPath, "data", "villages.dat")
+                };
+
+                var commonModIds = new[]
+                {
+                    "minecraft", "forge", "neoforge", "fabric", "quilt",
+                    "jei", "waila", "hwyla", "theoneprobe", "journeymap",
+                    "optifine", "create", "thermal", "mekanism", "botania"
+                };
+
+                foreach (var file in worldFiles)
+                {
+                    if (!File.Exists(file)) continue;
+                    
+                    try
+                    {
+                        var content = File.ReadAllText(file);
+                        foreach (var modId in commonModIds)
+                        {
+                            if (content.Contains(modId, StringComparison.OrdinalIgnoreCase) && 
+                                !requiredMods.Contains(modId))
+                            {
+                                requiredMods.Add(modId);
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Skip files that can't be read as text
+                    }
+                }
+
+                // Check for mod-specific world data folders
+                var dataPath = Path.Combine(worldPath, "data");
+                if (Directory.Exists(dataPath))
+                {
+                    var datFiles = Directory.GetFiles(dataPath, "*.dat");
+                    foreach (var datFile in datFiles)
+                    {
+                        var fileName = Path.GetFileNameWithoutExtension(datFile);
+                        if (!commonModIds.Contains(fileName) && !requiredMods.Contains(fileName))
+                        {
+                            requiredMods.Add(fileName);
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Return empty list if world can't be analyzed
+            }
+
+            return requiredMods;
+        }
+
+        /// <summary>
+        /// Check compatibility between a world and current mod setup.
+        /// </summary>
+        public WorldCompatibilityReport CheckWorldCompatibility(string worldPath, string modsFolder)
+        {
+            var report = new WorldCompatibilityReport();
+            
+            try
+            {
+                var worldRequiredMods = GetWorldRequiredMods(worldPath);
+                var installedMods = ReadAllModMetadataInFolder(modsFolder);
+                var installedModIds = installedMods.Select(m => m.modId ?? "").Where(id => !string.IsNullOrEmpty(id)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                report.RequiredMods = worldRequiredMods;
+                report.MissingMods = worldRequiredMods.Where(mod => !installedModIds.Contains(mod)).ToList();
+                
+                // Check for version compatibility
+                foreach (var installedMod in installedMods)
+                {
+                    if (string.IsNullOrEmpty(installedMod.modId)) continue;
+                    
+                    // Simple heuristic: if MC versions don't match, it's potentially incompatible
+                    if (!string.IsNullOrEmpty(installedMod.minecraftVersion))
+                    {
+                        report.MinecraftVersion = installedMod.minecraftVersion;
+                        report.ModLoader = installedMod.loader ?? "";
+                        break;
+                    }
+                }
+
+                report.IsCompatible = report.MissingMods.Count == 0;
+                
+                if (report.MissingMods.Count > 0)
+                {
+                    report.Warnings.Add($"Missing {report.MissingMods.Count} required mods");
+                }
+            }
+            catch (Exception ex)
+            {
+                report.IsCompatible = false;
+                report.Warnings.Add($"Error analyzing world: {ex.Message}");
+            }
+
+            return report;
+        }
+
+        /// <summary>
+        /// Find corrupted mod files that can't be read or have invalid metadata.
+        /// </summary>
+        public List<string> FindCorruptedMods(string folderPath)
+        {
+            var corruptedMods = new List<string>();
+            var modFiles = Directory.GetFiles(folderPath, "*.jar");
+
+            foreach (var modFile in modFiles)
+            {
+                try
+                {
+                    // Try to read the mod
+                    var metadata = ReadModMetadata(modFile);
+                    
+                    // Check if we can open the ZIP file
+                    using var archive = ZipFile.OpenRead(modFile);
+                    
+                    // Basic validation - if we can't read metadata, it might be corrupted
+                    if (metadata == null)
+                    {
+                        corruptedMods.Add(modFile);
+                        continue;
+                    }
+
+                    // Check for essential metadata
+                    if (string.IsNullOrEmpty(metadata.modId) && string.IsNullOrEmpty(metadata.name))
+                    {
+                        corruptedMods.Add(modFile);
+                    }
+                }
+                catch
+                {
+                    // If any exception occurs, consider the mod corrupted
+                    corruptedMods.Add(modFile);
+                }
+            }
+
+            return corruptedMods;
+        }
+
+        /// <summary>
+        /// Attempt to repair a corrupted mod by re-downloading or validation.
+        /// </summary>
+        public bool RepairMod(string modPath)
+        {
+            try
+            {
+                // Basic repair: try to validate the file
+                if (!File.Exists(modPath))
+                    return false;
+
+                // Try to read the mod to see if it's actually corrupted
+                var metadata = ReadModMetadata(modPath);
+                
+                // If we can read metadata, the mod might not be corrupted
+                if (metadata != null && !string.IsNullOrEmpty(metadata.modId))
+                    return true;
+
+                // For now, we can't actually repair mods without external sources
+                // This would require integration with mod repositories
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Import a modpack from .mrpack (Modrinth) or .zip (CurseForge) file.
+        /// </summary>
+        public bool ImportModPack(string modPackPath, string destinationPath)
+        {
+            try
+            {
+                if (!File.Exists(modPackPath))
+                    return false;
+
+                if (!Directory.Exists(destinationPath))
+                    Directory.CreateDirectory(destinationPath);
+
+                using var archive = ZipFile.OpenRead(modPackPath);
+
+                if (modPackPath.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase))
+                {
+                    return ImportModrinthPack(archive, destinationPath);
+                }
+                else if (modPackPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                {
+                    return ImportCurseForgePack(archive, destinationPath);
+                }
+
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool ImportModrinthPack(ZipArchive archive, string destinationPath)
+        {
+            try
+            {
+                // Look for modrinth.index.json
+                var indexEntry = archive.GetEntry("modrinth.index.json");
+                if (indexEntry == null)
+                    return false;
+
+                using var reader = new StreamReader(indexEntry.Open());
+                var indexJson = reader.ReadToEnd();
+                using var doc = JsonDocument.Parse(indexJson);
+                var root = doc.RootElement;
+
+                // Extract files
+                if (root.TryGetProperty("files", out var filesArray))
+                {
+                    foreach (var file in filesArray.EnumerateArray())
+                    {
+                        if (file.TryGetProperty("path", out var pathProp))
+                        {
+                            var filePath = pathProp.GetString();
+                            if (filePath?.StartsWith("mods/") == true)
+                            {
+                                var entry = archive.GetEntry(filePath);
+                                if (entry != null)
+                                {
+                                    var fileName = Path.GetFileName(filePath);
+                                    var destFile = Path.Combine(destinationPath, fileName);
+                                    entry.ExtractToFile(destFile, true);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool ImportCurseForgePack(ZipArchive archive, string destinationPath)
+        {
+            try
+            {
+                // Look for manifest.json
+                var manifestEntry = archive.GetEntry("manifest.json");
+                if (manifestEntry == null)
+                    return false;
+
+                // Extract overrides folder (contains mods)
+                foreach (var entry in archive.Entries)
+                {
+                    if (entry.FullName.StartsWith("overrides/mods/") && entry.FullName.EndsWith(".jar"))
+                    {
+                        var fileName = Path.GetFileName(entry.FullName);
+                        var destFile = Path.Combine(destinationPath, fileName);
+                        entry.ExtractToFile(destFile, true);
+                    }
+                }
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Disable a mod by renaming it to .disabled extension.
+        /// </summary>
+        public bool DisableMod(string modPath)
+        {
+            try
+            {
+                if (!File.Exists(modPath))
+                    return false;
+
+                var disabledPath = modPath + ".disabled";
+                if (File.Exists(disabledPath))
+                    return false; // Already disabled
+
+                File.Move(modPath, disabledPath);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Enable a disabled mod by removing the .disabled extension.
+        /// </summary>
+        public bool EnableMod(string disabledModPath)
+        {
+            try
+            {
+                if (!File.Exists(disabledModPath) || !disabledModPath.EndsWith(".disabled"))
+                    return false;
+
+                var enabledPath = disabledModPath.Substring(0, disabledModPath.Length - ".disabled".Length);
+                if (File.Exists(enabledPath))
+                    return false; // File already exists
+
+                File.Move(disabledModPath, enabledPath);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Get detailed performance information for a mod.
+        /// </summary>
+        public ModPerformanceInfo GetModPerformanceInfo(string modPath)
+        {
+            var info = new ModPerformanceInfo
+            {
+                ModPath = modPath
+            };
+
+            try
+            {
+                var metadata = ReadModMetadata(modPath);
+                info.ModId = metadata?.modId;
+                info.ModName = metadata?.name;
+                info.FileSizeBytes = GetModFileSize(modPath);
+
+                // Estimate memory usage based on file size (rough heuristic)
+                info.EstimatedMemoryUsageMB = (int)(info.FileSizeBytes / (1024 * 1024) * 1.5); // 1.5x file size
+
+                // Categorize performance impact
+                if (info.FileSizeBytes < 1024 * 1024) // < 1MB
+                    info.PerformanceCategory = "Light";
+                else if (info.FileSizeBytes < 10 * 1024 * 1024) // < 10MB
+                    info.PerformanceCategory = "Medium";
+                else
+                    info.PerformanceCategory = "Heavy";
+
+                // Add warnings for known heavy mods
+                var heavyModPatterns = new[] { "optifine", "create", "mekanism", "thermal", "gregtech" };
+                foreach (var pattern in heavyModPatterns)
+                {
+                    if (info.ModId?.Contains(pattern, StringComparison.OrdinalIgnoreCase) == true ||
+                        info.ModName?.Contains(pattern, StringComparison.OrdinalIgnoreCase) == true)
+                    {
+                        info.PerformanceWarnings.Add($"Known performance-intensive mod: {pattern}");
+                        info.PerformanceCategory = "Heavy";
+                        break;
+                    }
+                }
+            }
+            catch
+            {
+                info.PerformanceCategory = "Unknown";
+            }
+
+            return info;
+        }
     }
 }

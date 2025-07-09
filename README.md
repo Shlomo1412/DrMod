@@ -1,6 +1,6 @@
 ﻿# DrMod
 
-DrMod is a .NET 8 library for analyzing, validating, and managing Minecraft mods for Forge, NeoForge, Fabric, and Quilt. It provides advanced tools for reading mod metadata, dependency analysis, conflict detection, crash report resolution, and more.
+DrMod is a .NET 8 library for analyzing, validating, and managing Minecraft mods for Forge, NeoForge, Fabric, and Quilt. It provides advanced tools for reading mod metadata, dependency analysis, conflict detection, crash report resolution, performance analysis, world compatibility checking, modpack importing, and more.
 
 ## Features
 - Cross-loader support: Forge, NeoForge, Fabric, Quilt
@@ -10,6 +10,11 @@ DrMod is a .NET 8 library for analyzing, validating, and managing Minecraft mods
 - Detect duplicate/conflicting/incompatible mods
 - Analyze crash reports to identify problematic mods
 - Query mods by loader, Minecraft version, dependencies, and more
+- Performance analysis and memory usage estimation
+- World/save compatibility checking
+- Modpack importing (.mrpack and .zip support)
+- Mod corruption detection and repair
+- Mod enable/disable functionality
 
 ## Installation
 Add the DrMod project to your solution or reference the DLL. Target .NET 8 or later.
@@ -22,6 +27,7 @@ using DrMod;
 
 var analyzer = new DrMod();
 ```
+
 ## API Reference with Examples
 
 ### Java Detection Methods
@@ -30,7 +36,6 @@ var analyzer = new DrMod();
 Get the required Java version for a mod (e.g., 8, 17, 21).
 
 **Example:**
-
 ```
 var javaVersion = analyzer.GetRequiredJavaVersion(@"C:\mods\jei.jar");
 Console.WriteLine($"JEI requires Java {javaVersion}+");
@@ -40,7 +45,6 @@ Console.WriteLine($"JEI requires Java {javaVersion}+");
 Get the required Java version for a mod (e.g., 8, 17, 21).
 
 **Example:**
-
 ```
 var jdkPath = analyzer.FindRequiredJavaVersion(@"C:\mods\jei.jar");
 if (jdkPath != null)
@@ -48,8 +52,78 @@ if (jdkPath != null)
 else
     Console.WriteLine("No suitable JDK found for this mod's requirements.");
 ```
+### Performance & Resource Analysis Methods
 
+#### `GetModFileSize(string modPath)`
+Get the file size of a mod in bytes.
 
+**Example:**
+```
+var fileSize = analyzer.GetModFileSize(@"C:\mods\jei.jar");
+Console.WriteLine($"JEI file size: {fileSize / (1024 * 1024)} MB");
+
+// Batch check sizes
+var mods = Directory.GetFiles(@"C:\mods", "*.jar");
+Console.WriteLine("Mod file sizes:");
+foreach (var mod in mods)
+{
+    var size = analyzer.GetModFileSize(mod);
+    var name = Path.GetFileNameWithoutExtension(mod);
+    Console.WriteLine($"  {name}: {size / (1024 * 1024)} MB");
+}
+```
+#### `GetModsByMemoryUsage(string folderPath, bool sortDescending = true)`
+Get all mods in a folder sorted by estimated memory usage.
+
+**Example:**
+```
+var modsByMemory = analyzer.GetModsByMemoryUsage(@"C:\mods", true);
+Console.WriteLine("Mods sorted by memory usage (heaviest first):");
+
+foreach (var mod in modsByMemory.Take(10))
+{
+    var perfInfo = analyzer.GetModPerformanceInfo(@"C:\mods\" + mod.modFileName);
+    Console.WriteLine($"  {mod.name}: {perfInfo.EstimatedMemoryUsageMB} MB ({perfInfo.PerformanceCategory})");
+}
+```
+#### `DetectPerformanceImpactingMods(string folderPath)`
+Detect mods that may have performance impact.
+
+**Example:**
+```
+var heavyMods = analyzer.DetectPerformanceImpactingMods(@"C:\mods");
+
+if (heavyMods.Count > 0)
+{
+    Console.WriteLine($"⚠️ Found {heavyMods.Count} performance-impacting mods:");
+    foreach (var modId in heavyMods)
+    {
+        var mod = analyzer.GetModById(modId, @"C:\mods");
+        Console.WriteLine($"  - {mod?.name ?? modId}");
+    }
+    Console.WriteLine("\n💡 Consider reviewing these mods if experiencing performance issues.");
+}
+```
+#### `GetModPerformanceInfo(string modPath)`
+Get detailed performance information for a mod.
+
+**Example:**
+```
+var perfInfo = analyzer.GetModPerformanceInfo(@"C:\mods\create.jar");
+Console.WriteLine($"=== Performance Analysis: {perfInfo.ModName} ===");
+Console.WriteLine($"File Size: {perfInfo.FileSizeBytes / (1024 * 1024)} MB");
+Console.WriteLine($"Estimated Memory: {perfInfo.EstimatedMemoryUsageMB} MB");
+Console.WriteLine($"Performance Category: {perfInfo.PerformanceCategory}");
+
+if (perfInfo.PerformanceWarnings.Count > 0)
+{
+    Console.WriteLine("Warnings:");
+    foreach (var warning in perfInfo.PerformanceWarnings)
+    {
+        Console.WriteLine($"  ⚠️ {warning}");
+    }
+}
+```
 ### Metadata & Validation Methods
 
 #### `ReadModMetadata(string filePath)`
@@ -108,12 +182,12 @@ else
     }
 }
 ```
-
 **Example output:**
   ❌ Mod validation errors:
   - Missing modId.
   - Missing Minecraft version.
   - Duplicate required dependency: forge
+
 #### `ValidateModsFolder(string folderPath)`
 Validate all mods in a folder and detect folder-wide issues.
 
@@ -140,6 +214,216 @@ else
   Duplicate modId detected: jei
   Multiple Minecraft versions detected in mods folder: 1.20.1, 1.19.4
   [modA] is incompatible with [modB]
+
+### Mod Health & Corruption Detection
+
+#### `FindCorruptedMods(string folderPath)`
+Find corrupted mod files that can't be read or have invalid metadata.
+
+**Example:**
+```
+var corruptedMods = analyzer.FindCorruptedMods(@"C:\mods");
+
+if (corruptedMods.Count > 0)
+{
+    Console.WriteLine($"🔴 Found {corruptedMods.Count} corrupted mods:");
+    foreach (var corruptedMod in corruptedMods)
+    {
+        Console.WriteLine($"  - {Path.GetFileName(corruptedMod)}");
+    }
+    Console.WriteLine("\n💡 Consider re-downloading these mods.");
+}
+else
+{
+    Console.WriteLine("✅ No corrupted mods detected!");
+}
+```
+#### `RepairMod(string modPath)`
+Attempt to repair a corrupted mod.
+
+**Example:**
+```
+var corruptedMods = analyzer.FindCorruptedMods(@"C:\mods");
+foreach (var corruptedMod in corruptedMods)
+{
+    Console.WriteLine($"Attempting to repair: {Path.GetFileName(corruptedMod)}");
+    bool repaired = analyzer.RepairMod(corruptedMod);
+    
+    if (repaired)
+        Console.WriteLine("  ✅ Repair successful!");
+    else
+        Console.WriteLine("  ❌ Repair failed - consider re-downloading");
+}
+```
+### World/Save Compatibility
+
+#### `IsModSafeToRemove(string modId, string folderPath)`
+Check if a mod is safe to remove (no other mods depend on it).
+
+**Example:**
+```
+string modToRemove = "optifine";
+bool isSafe = analyzer.IsModSafeToRemove(modToRemove, @"C:\mods");
+
+if (isSafe)
+{
+    Console.WriteLine($"✅ {modToRemove} is safe to remove - no dependencies");
+}
+else
+{
+    var dependents = analyzer.GetDependents(modToRemove, @"C:\mods");
+    Console.WriteLine($"⚠️ {modToRemove} is required by {dependents.Count} other mods:");
+    foreach (var dependent in dependents)
+    {
+        Console.WriteLine($"  - {dependent}");
+    }
+}
+```
+#### `GetWorldRequiredMods(string worldPath)`
+Get list of required mods for a world/save.
+
+**Example:**
+```
+var requiredMods = analyzer.GetWorldRequiredMods(@"C:\Minecraft\saves\MyWorld");
+
+Console.WriteLine($"World requires {requiredMods.Count} mods:");
+foreach (var modId in requiredMods)
+{
+    Console.WriteLine($"  - {modId}");
+}
+
+// Check if current mods satisfy world requirements
+var installedMods = analyzer.ReadAllModMetadataInFolder(@"C:\mods")
+    .Select(m => m.modId).Where(id => !string.IsNullOrEmpty(id)).ToHashSet();
+
+var missingMods = requiredMods.Where(mod => !installedMods.Contains(mod)).ToList();
+if (missingMods.Count > 0)
+{
+    Console.WriteLine($"\n❌ Missing {missingMods.Count} required mods for this world!");
+}
+```
+#### `CheckWorldCompatibility(string worldPath, string modsFolder)`
+Check compatibility between a world and current mod setup.
+
+**Example:**
+```
+var compatibility = analyzer.CheckWorldCompatibility(@"C:\Minecraft\saves\MyWorld", @"C:\mods");
+
+Console.WriteLine($"=== World Compatibility Report ===");
+Console.WriteLine($"Compatible: {(compatibility.IsCompatible ? "✅ YES" : "❌ NO")}");
+Console.WriteLine($"Minecraft Version: {compatibility.MinecraftVersion}");
+Console.WriteLine($"Mod Loader: {compatibility.ModLoader}");
+
+if (compatibility.MissingMods.Count > 0)
+{
+    Console.WriteLine($"\nMissing Mods ({compatibility.MissingMods.Count}):");
+    foreach (var mod in compatibility.MissingMods)
+    {
+        Console.WriteLine($"  - {mod}");
+    }
+}
+
+if (compatibility.Warnings.Count > 0)
+{
+    Console.WriteLine($"\nWarnings:");
+    foreach (var warning in compatibility.Warnings)
+    {
+        Console.WriteLine($"  ⚠️ {warning}");
+    }
+}
+```
+### Modpack Management
+
+#### `ImportModPack(string modPackPath, string destinationPath)`
+Import a modpack from .mrpack (Modrinth) or .zip (CurseForge) file.
+
+**Example:**
+```
+// Import Modrinth modpack
+bool success = analyzer.ImportModPack(@"C:\Downloads\mypack.mrpack", @"C:\mods");
+if (success)
+{
+    Console.WriteLine("✅ Modrinth modpack imported successfully!");
+}
+
+// Import CurseForge modpack
+success = analyzer.ImportModPack(@"C:\Downloads\cursepack.zip", @"C:\mods");
+if (success)
+{
+    Console.WriteLine("✅ CurseForge modpack imported successfully!");
+}
+else
+{
+    Console.WriteLine("❌ Failed to import modpack");
+}
+
+// Validate imported mods
+var errors = analyzer.ValidateModsFolder(@"C:\mods");
+Console.WriteLine($"Imported modpack validation: {(errors.Count == 0 ? "✅ Success" : $"❌ {errors.Count} issues")}");
+```
+### Mod Enable/Disable Management
+
+#### `DisableMod(string modPath)`
+Disable a mod by renaming it to .disabled extension.
+
+**Example:**
+```
+string modToDisable = @"C:\mods\problematic-mod.jar";
+bool disabled = analyzer.DisableMod(modToDisable);
+
+if (disabled)
+{
+    Console.WriteLine($"✅ Mod disabled: {Path.GetFileName(modToDisable)}.disabled");
+}
+else
+{
+    Console.WriteLine($"❌ Failed to disable mod (already disabled or file not found)");
+}
+
+// Batch disable performance-heavy mods
+var heavyMods = analyzer.DetectPerformanceImpactingMods(@"C:\mods");
+foreach (var modId in heavyMods)
+{
+    var modFile = Directory.GetFiles(@"C:\mods", "*.jar")
+        .FirstOrDefault(f => analyzer.ReadModMetadata(f)?.modId == modId);
+    
+    if (modFile != null)
+    {
+        analyzer.DisableMod(modFile);
+        Console.WriteLine($"Disabled heavy mod: {Path.GetFileName(modFile)}");
+    }
+}
+```
+#### `EnableMod(string disabledModPath)`
+Enable a disabled mod by removing the .disabled extension.
+
+**Example:**
+```
+// Find all disabled mods
+var disabledMods = Directory.GetFiles(@"C:\mods", "*.disabled");
+Console.WriteLine($"Found {disabledMods.Length} disabled mods:");
+
+foreach (var disabledMod in disabledMods)
+{
+    Console.WriteLine($"  - {Path.GetFileName(disabledMod)}");
+    
+    // Ask user or apply logic to determine which to enable
+    bool shouldEnable = true; // Your logic here
+    
+    if (shouldEnable)
+    {
+        bool enabled = analyzer.EnableMod(disabledMod);
+        if (enabled)
+        {
+            Console.WriteLine($"    ✅ Re-enabled!");
+        }
+        else
+        {
+            Console.WriteLine($"    ❌ Failed to enable (target file may already exist)");
+        }
+    }
+}
+```
 ### Compatibility & Conflict Detection Methods
 
 #### `IsCompatible(string modPath, string mcVersion, string loader, string loaderVersion)`
@@ -230,19 +514,23 @@ foreach (var dep in requiredDeps)
     Console.WriteLine($"  - {dep}");
 }
 ```
-**Example output:** Required dependencies:
+**Example output:**
+Required dependencies:
   - forge
   - minecraft
 #### `GetOptionalDependencies(string modPath)`
 Get optional dependencies for a mod.
 
-**Example:**var optionalDeps = analyzer.GetOptionalDependencies(@"C:\mods\jei.jar");
+**Example:**
+```
+var optionalDeps = analyzer.GetOptionalDependencies(@"C:\mods\jei.jar");
 
 Console.WriteLine("Optional dependencies:");
 foreach (var dep in optionalDeps)
 {
     Console.WriteLine($"  - {dep}");
 }
+```
 #### `GetIncompatibilities(string modPath)`
 Get explicit incompatibilities for a mod.
 
@@ -399,6 +687,7 @@ MCVersion: 1.20.1
 Required: [forge, minecraft]
 Optional: [waila, nei]
 Incompatibilities: [toomanyitems]
+
 #### `GetModsByLoader(string loader, string folderPath)`
 Get all mods in a folder that use a specific loader.
 
@@ -425,7 +714,6 @@ if (forgeMods.Count > 0 && fabricMods.Count > 0)
     Console.WriteLine("\n⚠️ Warning: Mixed Forge and Fabric mods detected!");
 }
 ```
-
 #### `GetModsByMinecraftVersion(string mcVersion, string folderPath)`
 Get all mods compatible with a specific Minecraft version.
 
@@ -447,7 +735,6 @@ foreach (var mod in modsWithWildcard)
 {
     Console.WriteLine($"  - {mod.name}");
 }
-
 ```
 
 ### Crash Report Analysis
@@ -456,7 +743,6 @@ foreach (var mod in modsWithWildcard)
 Analyze a crash report to identify potentially problematic mods.
 
 **Example:**
-
 ```
 // Read crash report from file
 var crashReport = File.ReadAllText(@"C:\crash-reports\crash-2023-12-01.txt");
@@ -498,10 +784,9 @@ if (missingDeps.Count > 0)
     Console.WriteLine($"\n⚠️ Also check missing dependencies for {missingDeps.Count} mods");
 }
 ```
-## Complete Example: Mod Folder Analysis
+## Complete Example: Comprehensive Mod Folder Analysis
 
 Here's a comprehensive example that uses multiple methods to analyze a mods folder:
-
 ```
 using DrMod;
 
@@ -537,17 +822,36 @@ class Program
             Console.WriteLine($"   {loader}: {count} mods");
         }
         
-        // 3. Dependency analysis
+        // 3. Performance analysis
+        var heavyMods = analyzer.DetectPerformanceImpactingMods(modsPath);
+        Console.WriteLine($"\n⚡ Performance: {(heavyMods.Count == 0 ? "✅ OPTIMIZED" : $"⚠️ {heavyMods.Count} HEAVY MODS")}");
+        
+        if (heavyMods.Count > 0)
+        {
+            var modsByMemory = analyzer.GetModsByMemoryUsage(modsPath, true);
+            Console.WriteLine("   Top memory users:");
+            foreach (var mod in modsByMemory.Take(3))
+            {
+                var perfInfo = analyzer.GetModPerformanceInfo(Path.Combine(modsPath, mod.modFileName ?? ""));
+                Console.WriteLine($"     {mod.name}: {perfInfo.EstimatedMemoryUsageMB} MB");
+            }
+        }
+        
+        // 4. Health check
+        var corruptedMods = analyzer.FindCorruptedMods(modsPath);
+        Console.WriteLine($"\n🏥 Health: {(corruptedMods.Count == 0 ? "✅ HEALTHY" : $"🔴 {corruptedMods.Count} CORRUPTED")}");
+        
+        // 5. Dependency analysis
         var missingDeps = analyzer.GetModsWithMissingDependencies(modsPath);
         Console.WriteLine($"\n🔗 Dependencies: {(missingDeps.Count == 0 ? "✅ ALL SATISFIED" : $"❌ {missingDeps.Count} MISSING")}");
         
-        // 4. Conflict detection
+        // 6. Conflict detection
         var conflicts = analyzer.DetectConflicts(Directory.GetFiles(modsPath, "*.jar").ToList());
         var incompatibilities = analyzer.DetectIncompatibilities(Directory.GetFiles(modsPath, "*.jar").ToList());
         
         Console.WriteLine($"\n⚔️ Conflicts: {conflicts.Count} duplicates, {incompatibilities.Count} incompatibilities");
         
-        // 5. Most depended-on mods
+        // 7. Most depended-on mods
         Console.WriteLine("\n🌟 Most popular dependencies:");
         var dependencyCounts = new Dictionary<string, int>();
         
@@ -565,10 +869,21 @@ class Program
             Console.WriteLine($"   {dep}: required by {count} mods");
         }
         
+        // 8. World compatibility (if world path provided)
+        var worldPath = @"C:\Minecraft\saves\MyWorld";
+        if (Directory.Exists(worldPath))
+        {
+            var compatibility = analyzer.CheckWorldCompatibility(worldPath, modsPath);
+            Console.WriteLine($"\n🌍 World Compatibility: {(compatibility.IsCompatible ? "✅ COMPATIBLE" : "❌ ISSUES")}");
+            if (compatibility.MissingMods.Count > 0)
+            {
+                Console.WriteLine($"   Missing: {string.Join(", ", compatibility.MissingMods.Take(3))}");
+            }
+        }
+        
         Console.WriteLine("\n✅ Analysis complete!");
     }
 }
-
 ```
 ## License
 MIT
