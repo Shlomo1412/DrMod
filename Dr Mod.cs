@@ -1353,13 +1353,24 @@ namespace DrMod
 
         /// <summary>
         /// Import a modpack from .mrpack (Modrinth) or .zip (CurseForge) file.
+        /// Returns detailed import information including extracted metadata.
         /// </summary>
-        public bool ImportModPack(string modPackPath, string destinationPath)
+        public ModPackImportResult ImportModPack(string modPackPath, string destinationPath)
         {
+            var result = new ModPackImportResult
+            {
+                Success = false,
+                ModPackPath = modPackPath,
+                DestinationPath = destinationPath
+            };
+
             try
             {
                 if (!File.Exists(modPackPath))
-                    return false;
+                {
+                    result.ErrorMessage = "Modpack file does not exist.";
+                    return result;
+                }
 
                 if (!Directory.Exists(destinationPath))
                     Directory.CreateDirectory(destinationPath);
@@ -1368,186 +1379,294 @@ namespace DrMod
 
                 if (modPackPath.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase))
                 {
-                    return ImportModrinthPack(archive, destinationPath);
+                    return ImportModrinthPack(archive, destinationPath, result);
                 }
                 else if (modPackPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                 {
-                    return ImportCurseForgePack(archive, destinationPath);
+                    return ImportCurseForgePack(archive, destinationPath, result);
                 }
 
-                return false;
+                result.ErrorMessage = "Unsupported modpack format. Only .mrpack and .zip files are supported.";
+                return result;
             }
-            catch
+            catch (Exception ex)
             {
-                return false;
+                result.ErrorMessage = $"Error importing modpack: {ex.Message}";
+                return result;
             }
         }
 
-        private bool ImportModrinthPack(ZipArchive archive, string destinationPath)
+        private ModPackImportResult ImportModrinthPack(ZipArchive archive, string destinationPath, ModPackImportResult result)
         {
             try
             {
                 // Look for modrinth.index.json
                 var indexEntry = archive.GetEntry("modrinth.index.json");
                 if (indexEntry == null)
-                    return false;
+                {
+                    result.ErrorMessage = "Invalid .mrpack file: modrinth.index.json not found.";
+                    return result;
+                }
 
                 using var reader = new StreamReader(indexEntry.Open());
                 var indexJson = reader.ReadToEnd();
                 using var doc = JsonDocument.Parse(indexJson);
                 var root = doc.RootElement;
 
-                // Extract files
+                // Extract modpack metadata
+                var modPackInfo = new ModPackInfo();
+                if (root.TryGetProperty("name", out var nameProp))
+                    modPackInfo.Name = nameProp.GetString() ?? "";
+                if (root.TryGetProperty("versionId", out var versionProp))
+                    modPackInfo.Version = versionProp.GetString() ?? "";
+                if (root.TryGetProperty("summary", out var summaryProp))
+                    modPackInfo.Summary = summaryProp.GetString();
+
+                // Extract dependencies (Minecraft version, mod loader, etc.)
+                if (root.TryGetProperty("dependencies", out var depsProp))
+                {
+                    if (depsProp.TryGetProperty("minecraft", out var mcProp))
+                        modPackInfo.MinecraftVersion = mcProp.GetString() ?? "";
+                    if (depsProp.TryGetProperty("forge", out var forgeProp))
+                        modPackInfo.ModLoader = "Forge";
+                    else if (depsProp.TryGetProperty("neoforge", out var neoForgeProp))
+                        modPackInfo.ModLoader = "NeoForge";
+                    else if (depsProp.TryGetProperty("fabric-loader", out var fabricProp))
+                        modPackInfo.ModLoader = "Fabric";
+                    else if (depsProp.TryGetProperty("quilt-loader", out var quiltProp))
+                        modPackInfo.ModLoader = "Quilt";
+                }
+
+                result.ModPackInfo = modPackInfo;
+
+                // Extract files from the "files" array
+                var extractedFiles = new List<string>();
+                var skippedFiles = new List<string>();
+
                 if (root.TryGetProperty("files", out var filesArray))
                 {
                     foreach (var file in filesArray.EnumerateArray())
                     {
-                        if (file.TryGetProperty("path", out var pathProp))
+                        try
                         {
-                            var filePath = pathProp.GetString();
-                            if (filePath?.StartsWith("mods/") == true)
-                            {
-                                var entry = archive.GetEntry(filePath);
-                                if (entry != null)
-                                {
-                                    var fileName = Path.GetFileName(filePath);
-                                    var destFile = Path.Combine(destinationPath, fileName);
-                                    entry.ExtractToFile(destFile, true);
-                                }
-                            }
+                            var fileResult = ProcessModrinthFile(file, archive, destinationPath);
+                            if (fileResult.Success)
+                                extractedFiles.AddRange(fileResult.ExtractedFiles);
+                            else
+                                skippedFiles.Add(fileResult.ErrorMessage ?? "Unknown error");
+                        }
+                        catch (Exception ex)
+                        {
+                            skippedFiles.Add($"Error processing file: {ex.Message}");
                         }
                     }
                 }
 
-                return true;
+                // Extract overrides folders (in order: overrides, server-overrides, client-overrides)
+                ExtractOverrideFolder(archive, "overrides", destinationPath, extractedFiles);
+                ExtractOverrideFolder(archive, "server-overrides", destinationPath, extractedFiles);
+                ExtractOverrideFolder(archive, "client-overrides", destinationPath, extractedFiles);
+
+                result.Success = true;
+                result.ExtractedFiles = extractedFiles;
+                result.SkippedFiles = skippedFiles;
+                result.Summary = $"Successfully imported {extractedFiles.Count} files from {modPackInfo.Name}";
+
+                return result;
             }
-            catch
+            catch (Exception ex)
             {
-                return false;
+                result.ErrorMessage = $"Error parsing Modrinth modpack: {ex.Message}";
+                return result;
             }
         }
 
-        private bool ImportCurseForgePack(ZipArchive archive, string destinationPath)
+        private (bool Success, List<string> ExtractedFiles, string? ErrorMessage) ProcessModrinthFile(JsonElement file, ZipArchive archive, string destinationPath)
+        {
+            var extractedFiles = new List<string>();
+
+            if (!file.TryGetProperty("path", out var pathProp))
+                return (false, extractedFiles, "File missing 'path' property");
+
+            var filePath = pathProp.GetString();
+            if (string.IsNullOrEmpty(filePath))
+                return (false, extractedFiles, "File path is empty");
+
+            // Security: Prevent path traversal attacks
+            if (filePath.Contains("..") || filePath.StartsWith("/") || filePath.StartsWith("\\") || 
+                (filePath.Length >= 3 && filePath[1] == ':' && (filePath[0] >= 'A' && filePath[0] <= 'Z')))
+            {
+                return (false, extractedFiles, $"Security: Invalid file path '{filePath}' (path traversal attempt)");
+            }
+
+            // Check environment requirements (client/server compatibility)
+            if (file.TryGetProperty("env", out var envProp))
+            {
+                // For now, we'll extract all files, but this could be configurable
+                // based on whether we're setting up a client or server
+                if (envProp.TryGetProperty("client", out var clientProp))
+                {
+                    var clientReq = clientProp.GetString();
+                    if (clientReq == "unsupported")
+                    {
+                        // This is a server-only file, might want to skip for client installs
+                        // For now, we'll still extract it
+                    }
+                }
+            }
+
+            // Try to find the file in the archive first
+            var entry = archive.GetEntry(filePath);
+            if (entry != null)
+            {
+                var fileName = Path.GetFileName(filePath);
+                var destFile = Path.Combine(destinationPath, fileName);
+                entry.ExtractToFile(destFile, true);
+                extractedFiles.Add(destFile);
+                return (true, extractedFiles, null);
+            }
+
+            // If file is not in archive, it needs to be downloaded
+            if (file.TryGetProperty("downloads", out var downloadsProp) && downloadsProp.ValueKind == JsonValueKind.Array)
+            {
+                var downloads = downloadsProp.EnumerateArray().ToList();
+                if (downloads.Count > 0)
+                {
+                    // For now, we'll note that the file needs to be downloaded but won't actually download it
+                    // This would require HTTP client implementation and is beyond the current scope
+                    return (false, extractedFiles, $"File '{filePath}' requires download from external URL (not yet implemented)");
+                }
+            }
+
+            return (false, extractedFiles, $"File '{filePath}' not found in archive and no download URLs provided");
+        }
+
+        private void ExtractOverrideFolder(ZipArchive archive, string overrideFolderName, string destinationPath, List<string> extractedFiles)
+        {
+            try
+            {
+                var overrideEntries = archive.Entries
+                    .Where(e => e.FullName.StartsWith($"{overrideFolderName}/", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                foreach (var entry in overrideEntries)
+                {
+                    if (entry.FullName.EndsWith("/")) // Skip directories
+                        continue;
+
+                    // Remove the override folder prefix from the path
+                    var relativePath = entry.FullName.Substring(overrideFolderName.Length + 1);
+                    
+                    // Security: Prevent path traversal
+                    if (relativePath.Contains(".."))
+                        continue;
+
+                    var destFile = Path.Combine(destinationPath, relativePath);
+                    var destDir = Path.GetDirectoryName(destFile);
+                    
+                    if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
+                        Directory.CreateDirectory(destDir);
+
+                    entry.ExtractToFile(destFile, true);
+                    extractedFiles.Add(destFile);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log error but don't fail the entire import
+                Console.WriteLine($"Warning: Error extracting {overrideFolderName} folder: {ex.Message}");
+            }
+        }
+
+        private ModPackImportResult ImportCurseForgePack(ZipArchive archive, string destinationPath, ModPackImportResult result)
         {
             try
             {
                 // Look for manifest.json
                 var manifestEntry = archive.GetEntry("manifest.json");
                 if (manifestEntry == null)
-                    return false;
+                {
+                    result.ErrorMessage = "Invalid CurseForge modpack: manifest.json not found.";
+                    return result;
+                }
 
-                // Extract overrides folder (contains mods)
+                using var reader = new StreamReader(manifestEntry.Open());
+                var manifestJson = reader.ReadToEnd();
+                using var doc = JsonDocument.Parse(manifestJson);
+                var root = doc.RootElement;
+
+                // Extract CurseForge metadata
+                var modPackInfo = new ModPackInfo();
+                if (root.TryGetProperty("name", out var nameProp))
+                    modPackInfo.Name = nameProp.GetString() ?? "";
+                if (root.TryGetProperty("version", out var versionProp))
+                    modPackInfo.Version = versionProp.GetString() ?? "";
+                if (root.TryGetProperty("author", out var authorProp))
+                    modPackInfo.Author = authorProp.GetString();
+
+                // Extract Minecraft info
+                if (root.TryGetProperty("minecraft", out var mcProp))
+                {
+                    if (mcProp.TryGetProperty("version", out var mcVerProp))
+                        modPackInfo.MinecraftVersion = mcVerProp.GetString() ?? "";
+                    
+                    if (mcProp.TryGetProperty("modLoaders", out var loadersProp) && loadersProp.ValueKind == JsonValueKind.Array)
+                    {
+                        var firstLoader = loadersProp.EnumerateArray().FirstOrDefault();
+                        if (firstLoader.TryGetProperty("id", out var loaderIdProp))
+                        {
+                            var loaderId = loaderIdProp.GetString() ?? "";
+                            if (loaderId.StartsWith("forge", StringComparison.OrdinalIgnoreCase))
+                                modPackInfo.ModLoader = "Forge";
+                            else if (loaderId.StartsWith("neoforge", StringComparison.OrdinalIgnoreCase))
+                                modPackInfo.ModLoader = "NeoForge";
+                            else if (loaderId.StartsWith("fabric", StringComparison.OrdinalIgnoreCase))
+                                modPackInfo.ModLoader = "Fabric";
+                            else if (loaderId.StartsWith("quilt", StringComparison.OrdinalIgnoreCase))
+                                modPackInfo.ModLoader = "Quilt";
+                        }
+                    }
+                }
+
+                result.ModPackInfo = modPackInfo;
+
+                // Extract overrides folder (contains mods and configs)
+                var extractedFiles = new List<string>();
                 foreach (var entry in archive.Entries)
                 {
-                    if (entry.FullName.StartsWith("overrides/mods/") && entry.FullName.EndsWith(".jar"))
+                    if (entry.FullName.StartsWith("overrides/", StringComparison.OrdinalIgnoreCase))
                     {
-                        var fileName = Path.GetFileName(entry.FullName);
-                        var destFile = Path.Combine(destinationPath, fileName);
+                        if (entry.FullName.EndsWith("/")) // Skip directories
+                            continue;
+
+                        var relativePath = entry.FullName.Substring("overrides/".Length);
+                        
+                        // Security: Prevent path traversal
+                        if (relativePath.Contains(".."))
+                            continue;
+
+                        var destFile = Path.Combine(destinationPath, relativePath);
+                        var destDir = Path.GetDirectoryName(destFile);
+                        
+                        if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
+                            Directory.CreateDirectory(destDir);
+
                         entry.ExtractToFile(destFile, true);
+                        extractedFiles.Add(destFile);
                     }
                 }
 
-                return true;
+                result.Success = true;
+                result.ExtractedFiles = extractedFiles;
+                result.Summary = $"Successfully imported {extractedFiles.Count} files from {modPackInfo.Name}";
+
+                return result;
             }
-            catch
+            catch (Exception ex)
             {
-                return false;
+                result.ErrorMessage = $"Error parsing CurseForge modpack: {ex.Message}";
+                return result;
             }
-        }
-
-        /// <summary>
-        /// Disable a mod by renaming it to .disabled extension.
-        /// </summary>
-        public bool DisableMod(string modPath)
-        {
-            try
-            {
-                if (!File.Exists(modPath))
-                    return false;
-
-                var disabledPath = modPath + ".disabled";
-                if (File.Exists(disabledPath))
-                    return false; // Already disabled
-
-                File.Move(modPath, disabledPath);
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Enable a disabled mod by removing the .disabled extension.
-        /// </summary>
-        public bool EnableMod(string disabledModPath)
-        {
-            try
-            {
-                if (!File.Exists(disabledModPath) || !disabledModPath.EndsWith(".disabled"))
-                    return false;
-
-                var enabledPath = disabledModPath.Substring(0, disabledModPath.Length - ".disabled".Length);
-                if (File.Exists(enabledPath))
-                    return false; // File already exists
-
-                File.Move(disabledModPath, enabledPath);
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Get detailed performance information for a mod.
-        /// </summary>
-        public ModPerformanceInfo GetModPerformanceInfo(string modPath)
-        {
-            var info = new ModPerformanceInfo
-            {
-                ModPath = modPath
-            };
-
-            try
-            {
-                var metadata = ReadModMetadata(modPath);
-                info.ModId = metadata?.modId;
-                info.ModName = metadata?.name;
-                info.FileSizeBytes = GetModFileSize(modPath);
-
-                // Estimate memory usage based on file size (rough heuristic)
-                info.EstimatedMemoryUsageMB = (int)(info.FileSizeBytes / (1024 * 1024) * 1.5); // 1.5x file size
-
-                // Categorize performance impact
-                if (info.FileSizeBytes < 1024 * 1024) // < 1MB
-                    info.PerformanceCategory = "Light";
-                else if (info.FileSizeBytes < 10 * 1024 * 1024) // < 10MB
-                    info.PerformanceCategory = "Medium";
-                else
-                    info.PerformanceCategory = "Heavy";
-
-                // Add warnings for known heavy mods
-                var heavyModPatterns = new[] {"optifine", "create", "mekanism", "thermal", "gregtech"};
-                foreach (var pattern in heavyModPatterns)
-                {
-                    if (info.ModId?.Contains(pattern, StringComparison.OrdinalIgnoreCase) == true ||
-                        info.ModName?.Contains(pattern, StringComparison.OrdinalIgnoreCase) == true)
-                    {
-                        info.PerformanceWarnings.Add($"Known performance-intensive mod: {pattern}");
-                        info.PerformanceCategory = "Heavy";
-                        break;
-                    }
-                }
-            }
-            catch
-            {
-                info.PerformanceCategory = "Unknown";
-            }
-
-            return info;
         }
     }
 }

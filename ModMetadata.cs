@@ -57,4 +57,16 @@ namespace DrMod
         public long Size { get; set; }
         public bool Required { get; set; } = true;
     }
+
+    public class ModPackImportResult
+    {
+        public bool Success { get; set; }
+        public string ModPackPath { get; set; } = "";
+        public string DestinationPath { get; set; } = "";
+        public ModPackInfo? ModPackInfo { get; set; }
+        public List<string> ExtractedFiles { get; set; } = new();
+        public List<string> SkippedFiles { get; set; } = new();
+        public string? ErrorMessage { get; set; }
+        public string? Summary { get; set; }
+    }
 }

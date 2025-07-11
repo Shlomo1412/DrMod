@@ -13,72 +13,17 @@
 	<PropertyGroup>
 		<TargetFramework>net8.0</TargetFramework>
 		<PackageId>DrMod</PackageId>
-		<Version>1.5.0</Version>
+		<Version>1.5.1</Version>
 		<PackageReleaseNotes>
-			# 🚀 DrMod 1.5.0 Release Notes
+			🚀 DrMod 1.5.1 Release Notes
 
-			**Release Date:** January 2025
-			**Target Framework:** .NET 8.0
-
-			## 🎯 Advanced TOML Parsing Engine
-
-			### New Enterprise-Grade TOML Features
-			- **Multiline String Support (`'''`):** Full support for TOML triple-quote multiline strings, enabling complex mod descriptions across multiple lines
-			- **Version Range Extraction:** New `ExtractMinecraftVersionFromRange()` method intelligently parses Forge version ranges like `[1.20.1,)` or `[1.20.1,1.21.0)`
-			- **Enhanced Dependency Context Tracking:** Separate `isInDependencySection` and `currentDependencyModId` tracking for accurate dependency parsing
-			- **Advanced Section Management:** Improved TOML section detection with proper context switching between mod sections and dependency sections
-
-			### Robust Metadata Extraction
-			- **Smart Property Detection:** Enhanced global property parsing with context-aware handling of various TOML structures
-			- **Complete Description Parsing:** No more truncated descriptions - properly handles complex, multiline mod descriptions
-			- **Accurate Minecraft Version Detection:** Extracts exact Minecraft versions from complex version range specifications
-
-			## 🔧 Critical Parser Improvements
-
-			### JSON Parsing Stability (Fabric/Quilt)
-			- **Fixed '0x0A' JSON Parsing Error:** Resolved critical issue where Fabric/Quilt mods with unescaped newlines in JSON strings caused parsing failures
-			- **Added JSON Sanitization:** Advanced `SanitizeJsonString()` method automatically escapes problematic characters (newlines, tabs, carriage returns)
-			- **Error Resilience:** Parser gracefully handles malformed JSON without crashing analysis
-
-			### TOML Parsing Revolution (Forge/NeoForge)
-			- **Completely Rewritten Parser:** Enterprise-grade TOML processing with support for complex mod metadata structures
-			- **Enhanced Value Parser:** Advanced `GetTomlValue()` method handles quoted strings, escape sequences, and complex TOML formats
-			- **Automatic Filename Detection:** JAR-based mods properly extract and display filenames in metadata
-			- **Self-Dependency Prevention:** Intelligent validation prevents mods from incorrectly depending on themselves
-
-			## 🔄 What This Transforms
-
-			### Before 1.5.0:
-			- ❌ Complex TOML descriptions truncated or showing as just `'`
-			- ❌ Version ranges like `[1.20.1,)` not properly parsed
-			- ❌ Multiline mod descriptions lost or corrupted
-			- ❌ Inconsistent dependency context tracking
-			- ❌ Missing file names showing as "N/A"
-
-			### After 1.5.0:
-			- ✅ Complete multiline descriptions preserved and displayed
-			- ✅ Intelligent version range parsing extracts exact Minecraft versions
-			- ✅ Advanced TOML structures handled with enterprise-grade reliability
-			- ✅ Perfect dependency context tracking without false positives
-			- ✅ Comprehensive metadata extraction across all mod formats
-
-			## 📊 Real-World Impact
-
-			This release provides **enterprise-grade mod analysis** with dramatically improved parsing accuracy for:
-			- **Complex Forge/NeoForge mods** with advanced TOML structures
-			- **Modern Fabric/Quilt mods** with sophisticated JSON metadata
-			- **Version range specifications** used by professional mod developers
-			- **Multiline documentation** and detailed mod descriptions
-
-			## 🔗 Links
-			- [NuGet Package: DrMod 1.5.0](https://www.nuget.org/packages/DrMod)
-			- [Documentation](https://shlomo1412.github.io/Matrix-Site/drmod-docs.html)
-			- [Source Code](https://github.com/Shlomo1412/DrMod)
+			Fixed .mrpack modpack Importing/Exporting by using a valid modrinth modpack format.
 		</PackageReleaseNotes>
 		<Authors>Shlomo1412</Authors>
 		<Company>MatriX</Company>
 		<Description>DrMod is a .NET 8 library for analyzing, validating, and managing Minecraft mods for Forge, NeoForge, Fabric, and Quilt.</Description>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<PackageIcon>icon.png</PackageIcon>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<PackageProjectUrl>https://shlomo1412.github.io/Matrix-Site/drmod-docs.html</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/Shlomo1412/DrMod</RepositoryUrl>
