@@ -1,18 +1,15 @@
 ﻿<p align="center">
-  <a href="https://www.nuget.org/packages/DrMod">
-    <img src="https://img.shields.io/nuget/v/DrMod.svg?style=for-the-badge&color=informational" alt="NuGet Version" />
+  <a href="https://www.nuget.org/packages/DrMod" target="_blank">
+    <img src="https://img.shields.io/badge/NuGet_Package-DrMod-blue?style=flat&logo=nuget&logoColor=white" />
   </a>
-  <a href="https://github.com/Shlomo1412/DrMod">
-    <img src="https://img.shields.io/badge/GitHub-DrMod-black?logo=github&style=for-the-badge" alt="GitHub Repo" />
+  <a href="https://github.com/Shlomo1412/DrMod" target="_blank">
+    <img src="https://img.shields.io/badge/GitHub-Repository-181717?style=flat&logo=github&logoColor=white" />
   </a>
-  <a href="https://github.com/Shlomo1412/DrMod/commits">
-    <img src="https://img.shields.io/github/commit-activity/m/Shlomo1412/DrMod?style=for-the-badge&color=blue" alt="Commits" />
+  <a href="https://github.com/Shlomo1412/DrMod/commits" target="_blank">
+    <img src="https://img.shields.io/badge/Commits-History-orange?style=flat&logo=git&logoColor=white" />
   </a>
-  <a href="https://github.com/Shlomo1412/DrMod">
-    <img src="https://img.shields.io/tokei/lines/github/Shlomo1412/DrMod?style=for-the-badge&color=orange" alt="Lines of Code" />
-  </a>
-  <a href="https://www.nuget.org/packages/DrMod">
-    <img src="https://img.shields.io/nuget/dt/DrMod?style=for-the-badge&color=purple" alt="Downloads" />
+  <a href="https://www.nuget.org/packages/DrMod" target="_blank">
+    <img src="https://img.shields.io/nuget/dt/DrMod?style=flat&color=purple&logo=nuget&logoColor=white" />
   </a>
 </p>
 
