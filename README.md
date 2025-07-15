@@ -1,8 +1,21 @@
-﻿[![NuGet](https://img.shields.io/nuget/v/DrMod.svg?style=flat-square&color=informational)](https://www.nuget.org/packages/DrMod)
-[![GitHub Repo](https://img.shields.io/badge/GitHub-DrMod-black?logo=github&style=flat-square)](https://github.com/Shlomo1412/DrMod)
-[![Commits](https://img.shields.io/github/commit-activity/m/Shlomo1412/DrMod?style=flat-square&color=blue)](https://github.com/Shlomo1412/DrMod/commits)
-[![Lines of Code](https://tokei.rs/b1/github/Shlomo1412/DrMod?category=code)](https://github.com/Shlomo1412/DrMod)
-[![NuGet Downloads](https://img.shields.io/nuget/dt/DrMod?style=flat-square&color=purple)](https://www.nuget.org/packages/DrMod)
+﻿<p align="center">
+  <a href="https://www.nuget.org/packages/DrMod">
+    <img src="https://img.shields.io/nuget/v/DrMod.svg?style=for-the-badge&color=informational" alt="NuGet Version" />
+  </a>
+  <a href="https://github.com/Shlomo1412/DrMod">
+    <img src="https://img.shields.io/badge/GitHub-DrMod-black?logo=github&style=for-the-badge" alt="GitHub Repo" />
+  </a>
+  <a href="https://github.com/Shlomo1412/DrMod/commits">
+    <img src="https://img.shields.io/github/commit-activity/m/Shlomo1412/DrMod?style=for-the-badge&color=blue" alt="Commits" />
+  </a>
+  <a href="https://github.com/Shlomo1412/DrMod">
+    <img src="https://img.shields.io/tokei/lines/github/Shlomo1412/DrMod?style=for-the-badge&color=orange" alt="Lines of Code" />
+  </a>
+  <a href="https://www.nuget.org/packages/DrMod">
+    <img src="https://img.shields.io/nuget/dt/DrMod?style=for-the-badge&color=purple" alt="Downloads" />
+  </a>
+</p>
+
 
 
 # DrMod

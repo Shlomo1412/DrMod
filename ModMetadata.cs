@@ -69,4 +69,95 @@ namespace DrMod
         public string? ErrorMessage { get; set; }
         public string? Summary { get; set; }
     }
+
+    // Progress reporting interfaces and classes
+    public interface IProgress<in T>
+    {
+        void Report(T value);
+    }
+
+    public class Progress<T> : IProgress<T>
+    {
+        private readonly Action<T>? _handler;
+
+        public Progress() { }
+
+        public Progress(Action<T> handler)
+        {
+            _handler = handler;
+        }
+
+        public void Report(T value)
+        {
+            _handler?.Invoke(value);
+        }
+    }
+
+    public class ProgressInfo
+    {
+        public int Current { get; set; }
+        public int Total { get; set; }
+        public string Status { get; set; } = "";
+        public string? CurrentItem { get; set; }
+        public double PercentComplete => Total > 0 ? (double)Current / Total * 100 : 0;
+        public string? SubStatus { get; set; }
+        public OperationType Operation { get; set; }
+        public DateTime StartTime { get; set; }
+        public TimeSpan Elapsed => DateTime.Now - StartTime;
+        public TimeSpan? EstimatedTimeRemaining => PercentComplete > 0 && PercentComplete < 100 
+            ? TimeSpan.FromMilliseconds(Elapsed.TotalMilliseconds * (100 - PercentComplete) / PercentComplete) 
+            : null;
+    }
+
+    public enum OperationType
+    {
+        ReadingMods,
+        ValidatingMods,
+        ImportingModPack,
+        AnalyzingPerformance,
+        DetectingConflicts,
+        CheckingCorruption,
+        AnalyzingDependencies,
+        WorldCompatibilityCheck,
+        FindingJavaVersions,
+        RepairingMods
+    }
+
+    public class DetailedProgressInfo : ProgressInfo
+    {
+        public List<string> CompletedItems { get; set; } = new();
+        public List<string> FailedItems { get; set; } = new();
+        public List<string> Warnings { get; set; } = new();
+        public Dictionary<string, object> AdditionalData { get; set; } = new();
+        public long BytesProcessed { get; set; }
+        public long TotalBytes { get; set; }
+        public double BytesPerSecond { get; set; }
+    }
+
+    public class CancellationToken
+    {
+        private volatile bool _isCancellationRequested;
+
+        public bool IsCancellationRequested => _isCancellationRequested;
+
+        public void Cancel()
+        {
+            _isCancellationRequested = true;
+        }
+
+        public void ThrowIfCancellationRequested()
+        {
+            if (_isCancellationRequested)
+            {
+                throw new OperationCanceledException("Operation was cancelled.");
+            }
+        }
+    }
+
+    public class OperationCanceledException : Exception
+    {
+        public OperationCanceledException() : base("Operation was cancelled.") { }
+        public OperationCanceledException(string message) : base(message) { }
+        public OperationCanceledException(string message, Exception innerException) : base(message, innerException) { }
+    }
 }
